@@ -2,6 +2,10 @@
 
 Official AiDD MCP Server for Claude Desktop - Seamless integration with Apple Notes, AI-powered task processing, and multi-service synchronization.
 
+<a href="https://glama.ai/mcp/servers/@AiDD-app/mcp-server">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@AiDD-app/mcp-server/badge" alt="AiDD Server MCP server" />
+</a>
+
 ## Features
 
 ### 🍎 Apple Notes Integration
