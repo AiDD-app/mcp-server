@@ -1,0 +1,184 @@
+{
+  "version": "1.0.0",
+  "format": "mcpb",
+  "metadata": {
+    "name": "AiDD",
+    "displayName": "AiDD - Apple Notes AI Integration",
+    "description": "Seamless Apple Notes integration with AI-powered task processing and multi-service synchronization for ADHD optimization",
+    "author": "https://github.com/mfridson",
+    "authorEmail": "support@aidd.app",
+    "homepage": "https://aidd.app",
+    "repository": "https://github.com/aidd-app/mcp-server",
+    "license": "MIT",
+    "version": "1.0.0",
+    "icon": "icon.png",
+    "category": "productivity",
+    "tags": [
+      "apple-notes",
+      "ai",
+      "task-management",
+      "adhd",
+      "productivity",
+      "oauth",
+      "google-tasks",
+      "microsoft-todo",
+      "trello",
+      "todoist",
+      "notion",
+      "ticktick",
+      "evernote"
+    ]
+  },
+  "runtime": {
+    "type": "node",
+    "version": ">=18.0.0",
+    "packageManager": "npm"
+  },
+  "mcp": {
+    "protocolVersion": "1.0.0",
+    "command": "npx",
+    "args": ["@aidd-app/mcp"],
+    "env": {},
+    "capabilities": {
+      "tools": true,
+      "resources": false,
+      "prompts": false,
+      "sampling": false
+    }
+  },
+  "installation": {
+    "type": "npm",
+    "package": "@aidd-app/mcp",
+    "registry": "https://registry.npmjs.org/",
+    "localFallback": true
+  },
+  "requirements": {
+    "platform": ["darwin"],
+    "osVersion": ">=10.15",
+    "dependencies": {
+      "applescript": "Required for Apple Notes integration",
+      "node": ">=18.0.0"
+    }
+  },
+  "features": [
+    {
+      "id": "apple-notes",
+      "name": "Apple Notes Integration",
+      "description": "Full CRUD operations on Apple Notes via AppleScript",
+      "required": true
+    },
+    {
+      "id": "oauth",
+      "name": "OAuth Authentication",
+      "description": "Browser-based OAuth 2.0 authentication flow",
+      "required": true
+    },
+    {
+      "id": "ai-processing",
+      "name": "AI Task Processing",
+      "description": "Extract and convert action items using AI",
+      "required": true
+    },
+    {
+      "id": "multi-service-sync",
+      "name": "Multi-Service Synchronization",
+      "description": "Sync with Google Tasks, Microsoft To Do, Trello, and more",
+      "required": false
+    }
+  ],
+  "permissions": [
+    {
+      "type": "applescript",
+      "reason": "Required to access and modify Apple Notes"
+    },
+    {
+      "type": "network",
+      "reason": "Required for OAuth authentication and API communication"
+    },
+    {
+      "type": "browser",
+      "reason": "Required to open browser for OAuth authentication"
+    }
+  ],
+  "configuration": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "apiEndpoint": {
+          "type": "string",
+          "default": "https://api.aidd.app",
+          "description": "AiDD API endpoint"
+        },
+        "authPort": {
+          "type": "number",
+          "default": 5173,
+          "description": "Local port for OAuth callback"
+        },
+        "debug": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable debug logging"
+        }
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "connect",
+      "description": "Connect to AiDD account via OAuth"
+    },
+    {
+      "name": "disconnect",
+      "description": "Disconnect from AiDD account"
+    },
+    {
+      "name": "status",
+      "description": "Check connection status"
+    },
+    {
+      "name": "import",
+      "description": "Import Apple Notes for AI processing"
+    },
+    {
+      "name": "extract",
+      "description": "Extract action items from notes"
+    },
+    {
+      "name": "sync",
+      "description": "Sync tasks with connected services"
+    },
+    {
+      "name": "createNote",
+      "description": "Create a new Apple Note"
+    },
+    {
+      "name": "updateNote",
+      "description": "Update an existing Apple Note"
+    },
+    {
+      "name": "deleteNote",
+      "description": "Delete an Apple Note"
+    },
+    {
+      "name": "listNotes",
+      "description": "List all Apple Notes"
+    }
+  ],
+  "changelog": {
+    "1.0.0": {
+      "date": "2024-11-16",
+      "changes": [
+        "Initial release",
+        "Apple Notes integration",
+        "OAuth 2.0 authentication",
+        "AI-powered task processing",
+        "Multi-service synchronization"
+      ]
+    }
+  },
+  "support": {
+    "documentation": "https://aidd.app/docs",
+    "issues": "https://github.com/aidd-app/mcp-server/issues",
+    "email": "support@aidd.app"
+  }
+}
