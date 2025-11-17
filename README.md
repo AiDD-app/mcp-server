@@ -35,7 +35,18 @@ Official AiDD MCP Server for Claude Desktop - Seamless integration with Apple No
 
 ## Installation
 
-### Easy Installation via Claude Desktop UI
+### Option 1: MCP Bundle (Fastest)
+
+Download and install the self-contained bundle:
+```bash
+# Download the bundle
+curl -LO https://github.com/AiDD-app/mcp-server/raw/main/AiDD.mcpb
+
+# Extract and install
+unzip AiDD.mcpb && cd AiDD.mcpb && ./install.sh
+```
+
+### Option 2: Claude Desktop UI
 
 1. Open Claude Desktop
 2. Go to Settings → MCP Servers → Add Server
