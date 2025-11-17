@@ -1,0 +1,50 @@
+# Source files
+src/
+*.ts
+tsconfig.json
+
+# Test files
+test-*
+*.test.*
+__tests__/
+
+# Development files
+*.md
+!README.md
+.env*
+credentials/
+notes_*.json
+settings.json
+
+# Scripts
+switch-auth-mode.sh
+install.sh
+test-oauth.sh
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Build tools
+.github/
+.gitignore
+.editorconfig
+.eslintrc*
+.prettierrc*
+
+# Backups
+*.backup
+*.bak
+
+# Temporary
+tmp/
+temp/

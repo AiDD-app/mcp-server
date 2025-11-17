@@ -1,0 +1,63 @@
+{
+  "name": "@aidd-app/mcp",
+  "version": "1.0.0",
+  "description": "Official AiDD MCP Server for Claude Desktop - Seamless integration with Apple Notes, AI task processing, and multi-service sync",
+  "main": "dist/index-browser-auth.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index-browser-auth.js",
+    "prepublishOnly": "npm run build",
+    "test": "node test-server.js"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "claude-desktop",
+    "aidd",
+    "apple-notes",
+    "productivity",
+    "task-management",
+    "adhd",
+    "ai",
+    "oauth",
+    "google-tasks",
+    "microsoft-todo"
+  ],
+  "author": "AiDD Team <support@aidd.app>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mfridson/aidd-mcp-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mfridson/aidd-mcp-server/issues"
+  },
+  "homepage": "https://aidd.app",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.22.0",
+    "applescript": "^1.0.0",
+    "date-fns": "^3.0.0",
+    "node-fetch": "^3.3.2",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/node-fetch": "^2.6.13",
+    "tsx": "^4.6.2",
+    "typescript": "^5.3.3"
+  },
+  "bin": {
+    "aidd-mcp": "./bin/aidd-mcp"
+  },
+  "files": [
+    "dist/",
+    "bin/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
