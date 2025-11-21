@@ -235,8 +235,9 @@ export class AuthManager {
    */
   private async loadCredentials(): Promise<void> {
     try {
-      const data = await fs.readFile(this.credentialsPath, 'utf-8');
-      this.credentials = JSON.parse(data);
+      const encrypted = await fs.readFile(this.credentialsPath, 'utf-8');
+      const decrypted = this.simpleDecrypt(encrypted);
+      this.credentials = JSON.parse(decrypted);
     } catch (error) {
       // No saved credentials or file doesn't exist
       this.credentials = {};
