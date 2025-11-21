@@ -4,7 +4,7 @@ import { dirname, join } from 'path';
 import { spawn } from 'child_process';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const mainScript = join(__dirname, '..', 'dist', 'index-browser-auth.js');
+const mainScript = join(__dirname, '..', 'dist', 'index-aidd.js');
 
 // Pass through all stdio to make the MCP protocol work
 const child = spawn('node', [mainScript], {
