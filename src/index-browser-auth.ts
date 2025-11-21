@@ -296,25 +296,28 @@ class AiDDBrowserAuthServer {
               // Debug log the full response to understand subscription field
               console.error('OAuth signin response:', JSON.stringify(data, null, 2));
 
+              // Extract response data (backend wraps in {success, data} structure)
+              const responseData = data.data || data;
+
               // Check multiple possible fields for subscription status
-              const subscription = data.user?.subscription ||
-                                 data.user?.subscriptionStatus ||
-                                 data.user?.subscriptionTier ||
+              const subscription = responseData.user?.subscription ||
+                                 responseData.user?.subscriptionStatus ||
+                                 responseData.user?.subscriptionTier ||
+                                 responseData.subscription ||
+                                 responseData.subscriptionStatus ||
+                                 responseData.subscriptionTier ||
+                                 data.user?.subscription ||
                                  data.subscription ||
-                                 data.subscriptionStatus ||
-                                 data.subscriptionTier ||
-                                 data.data?.user?.subscription ||
-                                 data.data?.subscription ||
                                  'FREE';
 
               // Store authentication state
               this.authState = {
-                accessToken: data.accessToken,
-                refreshToken: data.refreshToken,
-                email: data.user?.email || 'OAuth User',
-                userId: data.user?.userId || data.userId,
+                accessToken: responseData.accessToken,
+                refreshToken: responseData.refreshToken,
+                email: responseData.user?.email || 'OAuth User',
+                userId: responseData.user?.userId || responseData.userId,
                 subscription: subscription,
-                expiresAt: Date.now() + (data.expiresIn || 3600) * 1000
+                expiresAt: Date.now() + (responseData.expiresIn || 3600) * 1000
               };
 
               await this.saveCredentials();
@@ -582,25 +585,28 @@ class AiDDBrowserAuthServer {
               // Debug log the full response to understand subscription field
               console.error('Device auth response:', JSON.stringify(data, null, 2));
 
+              // Extract response data (backend wraps in {success, data} structure)
+              const responseData = data.data || data;
+
               // Store authentication state
               // Check multiple possible locations for subscription status
-              const subscription = data.user?.subscription ||
-                                 data.user?.subscriptionStatus ||
-                                 data.user?.subscriptionTier ||
+              const subscription = responseData.user?.subscription ||
+                                 responseData.user?.subscriptionStatus ||
+                                 responseData.user?.subscriptionTier ||
+                                 responseData.subscription ||
+                                 responseData.subscriptionStatus ||
+                                 responseData.subscriptionTier ||
+                                 data.user?.subscription ||
                                  data.subscription ||
-                                 data.subscriptionStatus ||
-                                 data.subscriptionTier ||
-                                 data.data?.user?.subscription ||
-                                 data.data?.subscription ||
                                  'FREE';
 
               this.authState = {
-                accessToken: data.accessToken,
-                refreshToken: data.refreshToken,
-                email: data.user?.email || email,
-                userId: data.user?.userId || data.userId,
+                accessToken: responseData.accessToken,
+                refreshToken: responseData.refreshToken,
+                email: responseData.user?.email || email,
+                userId: responseData.user?.userId || responseData.userId,
                 subscription: subscription,
-                expiresAt: Date.now() + (data.expiresIn || 3600) * 1000
+                expiresAt: Date.now() + (responseData.expiresIn || 3600) * 1000
               };
 
               // Log the full response to debug subscription issue
