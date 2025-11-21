@@ -369,7 +369,8 @@ class AiDDBrowserAuthServer {
                   <div class="container">
                     <div class="success">✓</div>
                     <h1>Successfully Connected!</h1>
-                    <p>Email: ${this.authState.email}
+                    <p>Email: ${this.authState.email}</p>
+                    <p>Subscription:
                       <span class="subscription ${(this.authState.subscription || 'FREE').toLowerCase()}">
                         ${this.authState.subscription || 'FREE'}
                       </span>
@@ -662,8 +663,8 @@ class AiDDBrowserAuthServer {
                   <div class="container">
                     <div class="success">✓</div>
                     <h1>Successfully Connected!</h1>
-                    <p class="info">
-                      Email: ${data.user?.email || email}
+                    <p class="info">Email: ${data.user?.email || email}</p>
+                    <p class="info">Subscription:
                       <span class="subscription ${subscription.toLowerCase()}">
                         ${subscription}
                       </span>
