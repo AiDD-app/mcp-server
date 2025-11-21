@@ -52,15 +52,15 @@ export class AuthManager {
         throw new Error(`Sign-in failed: ${error}`);
       }
 
-      const data = await response.json() as AuthResponse;
+      const data = await response.json() as any;
 
       this.credentials = {
-        email: data.email,
-        userId: data.userId,
-        accessToken: data.accessToken,
-        refreshToken: data.refreshToken,
-        expiresAt: Date.now() + (data.expiresIn * 1000),
-        subscription: data.subscription as 'FREE' | 'PREMIUM' | 'PRO'
+        email: data.user?.email || data.email,
+        userId: data.user?.userId || data.userId,
+        accessToken: data.tokens?.accessToken || data.accessToken,
+        refreshToken: data.tokens?.refreshToken || data.refreshToken,
+        expiresAt: Date.now() + ((data.tokens?.expiresIn || data.expiresIn) * 1000),
+        subscription: (data.user?.subscription || data.subscription || 'FREE') as 'FREE' | 'PREMIUM' | 'PRO'
       };
 
       await this.saveCredentials();
@@ -88,15 +88,15 @@ export class AuthManager {
         throw new Error(`Google sign-in failed: ${response.statusText}`);
       }
 
-      const data = await response.json() as AuthResponse;
+      const data = await response.json() as any;
 
       this.credentials = {
-        email: data.email,
-        userId: data.userId,
-        accessToken: data.accessToken,
-        refreshToken: data.refreshToken,
-        expiresAt: Date.now() + (data.expiresIn * 1000),
-        subscription: data.subscription as 'FREE' | 'PREMIUM' | 'PRO'
+        email: data.user?.email || data.email,
+        userId: data.user?.userId || data.userId,
+        accessToken: data.tokens?.accessToken || data.accessToken,
+        refreshToken: data.tokens?.refreshToken || data.refreshToken,
+        expiresAt: Date.now() + ((data.tokens?.expiresIn || data.expiresIn) * 1000),
+        subscription: (data.user?.subscription || data.subscription || 'FREE') as 'FREE' | 'PREMIUM' | 'PRO'
       };
 
       await this.saveCredentials();
@@ -124,15 +124,15 @@ export class AuthManager {
         throw new Error(`Microsoft sign-in failed: ${response.statusText}`);
       }
 
-      const data = await response.json() as AuthResponse;
+      const data = await response.json() as any;
 
       this.credentials = {
-        email: data.email,
-        userId: data.userId,
-        accessToken: data.accessToken,
-        refreshToken: data.refreshToken,
-        expiresAt: Date.now() + (data.expiresIn * 1000),
-        subscription: data.subscription as 'FREE' | 'PREMIUM' | 'PRO'
+        email: data.user?.email || data.email,
+        userId: data.user?.userId || data.userId,
+        accessToken: data.tokens?.accessToken || data.accessToken,
+        refreshToken: data.tokens?.refreshToken || data.refreshToken,
+        expiresAt: Date.now() + ((data.tokens?.expiresIn || data.expiresIn) * 1000),
+        subscription: (data.user?.subscription || data.subscription || 'FREE') as 'FREE' | 'PREMIUM' | 'PRO'
       };
 
       await this.saveCredentials();

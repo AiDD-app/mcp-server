@@ -1,6 +1,6 @@
 {
   "name": "@aidd-app/mcp",
-  "version": "3.0.3",
+  "version": "3.0.4",
   "description": "Official AiDD MCP Server for Claude Desktop - Comprehensive ADHD-optimized productivity platform with AI-powered task management, action item extraction, Apple Notes integration, and multi-service sync",
   "main": "dist/index-aidd.js",
   "type": "module",
