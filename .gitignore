@@ -42,3 +42,13 @@ out/
 tmp/
 temp/
 *.tmp
+
+# Test data files (may contain sensitive data)
+imported-notes.json
+imported-notes.txt
+demo-*.json
+extracted-action-items.json
+export-google-tasks.json
+aidd-*.json
+aidd-*.txt
+workflow-summary.txt
