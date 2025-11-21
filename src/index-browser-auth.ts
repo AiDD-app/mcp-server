@@ -68,8 +68,11 @@ class AiDDBrowserAuthServer {
     this.setupHandlers();
     this.setupTools();
 
-    // Load saved credentials on startup
-    this.loadCredentials();
+    // Note: loadCredentials is async - will complete before first tool call
+    // due to MCP protocol initialization time
+    this.loadCredentials().catch(() => {
+      console.error('📝 No saved credentials found');
+    });
   }
 
   private async loadCredentials() {
