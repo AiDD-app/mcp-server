@@ -1,12 +1,12 @@
 {
   "name": "@aidd-app/mcp",
-  "version": "1.0.3",
-  "description": "Official AiDD MCP Server for Claude Desktop - Seamless integration with Apple Notes, AI task processing, and multi-service sync",
-  "main": "dist/index-browser-auth.js",
+  "version": "3.0.0",
+  "description": "Official AiDD MCP Server for Claude Desktop - Comprehensive ADHD-optimized productivity platform with AI-powered task management, action item extraction, Apple Notes integration, and multi-service sync",
+  "main": "dist/index-aidd.js",
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index-browser-auth.js",
+    "start": "node dist/index-aidd.js",
     "prepublishOnly": "npm run build",
     "test": "node test-server.js"
   },
@@ -23,7 +23,16 @@
     "ai",
     "oauth",
     "google-tasks",
-    "microsoft-todo"
+    "microsoft-todo",
+    "action-items",
+    "task-scoring",
+    "task-prioritization",
+    "gemini-ai",
+    "notes-management",
+    "crud-api",
+    "backend-integration",
+    "firestore",
+    "redis"
   ],
   "author": "AiDD Team <support@aidd.app>",
   "license": "MIT",
