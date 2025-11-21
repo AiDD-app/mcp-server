@@ -101,6 +101,14 @@ class AiDDMCPServer {
           case 'score_tasks':
             return await this.handleScoreTasks(args);
 
+          // Authentication Tools
+          case 'connect':
+            return await this.handleConnect();
+          case 'disconnect':
+            return await this.handleDisconnect();
+          case 'status':
+            return await this.handleStatus();
+
           // Utility Tools
           case 'check_backend_health':
             return await this.handleCheckBackendHealth();
@@ -378,8 +386,23 @@ class AiDDMCPServer {
       },
 
       // =============================================================================
-      // UTILITY TOOLS
+      // AUTHENTICATION & UTILITY TOOLS
       // =============================================================================
+      {
+        name: 'connect',
+        description: 'Connect to your AiDD account via browser authentication',
+        inputSchema: { type: 'object', properties: {} },
+      },
+      {
+        name: 'disconnect',
+        description: 'Disconnect from your AiDD account and clear credentials',
+        inputSchema: { type: 'object', properties: {} },
+      },
+      {
+        name: 'status',
+        description: 'Check authentication status and account information',
+        inputSchema: { type: 'object', properties: {} },
+      },
       {
         name: 'check_backend_health',
         description: 'Check AiDD backend service health and connectivity',
@@ -1016,6 +1039,93 @@ All tasks have been scored and saved to your AiDD account.
         content: [{
           type: 'text',
           text: `❌ Error scoring tasks: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        } as TextContent],
+      };
+    }
+  }
+
+  // =============================================================================
+  // AUTHENTICATION HANDLERS
+  // =============================================================================
+
+  private async handleConnect() {
+    try {
+      // Trigger authentication
+      const success = await this.backendClient.authenticate();
+
+      if (success) {
+        const info = (this.backendClient as any).authManager.getUserInfo();
+        return {
+          content: [{
+            type: 'text',
+            text: `✅ Connected to AiDD\n\n📧 Email: ${info.email || 'Unknown'}\n💎 Subscription: ${info.subscription || 'FREE'}\n🔑 User ID: ${info.userId || 'Unknown'}\n\nReady to manage your tasks!`,
+          } as TextContent],
+        };
+      } else {
+        return {
+          content: [{
+            type: 'text',
+            text: '❌ Failed to connect to AiDD. Please try again or check your credentials.',
+          } as TextContent],
+        };
+      }
+    } catch (error) {
+      return {
+        content: [{
+          type: 'text',
+          text: `❌ Error connecting to AiDD: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        } as TextContent],
+      };
+    }
+  }
+
+  private async handleDisconnect() {
+    try {
+      const authManager = (this.backendClient as any).authManager;
+      await authManager.signOut();
+
+      return {
+        content: [{
+          type: 'text',
+          text: '✅ Successfully disconnected from AiDD account',
+        } as TextContent],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: 'text',
+          text: `❌ Error disconnecting: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        } as TextContent],
+      };
+    }
+  }
+
+  private async handleStatus() {
+    try {
+      const authManager = (this.backendClient as any).authManager;
+      const isSignedIn = authManager.isSignedIn();
+
+      if (isSignedIn) {
+        const info = authManager.getUserInfo();
+        return {
+          content: [{
+            type: 'text',
+            text: `✅ Connected to AiDD\n\n📧 Email: ${info.email || 'Unknown'}\n💎 Subscription: ${info.subscription || 'FREE'}\n🔑 User ID: ${info.userId || 'Unknown'}\n\nReady to process your tasks!`,
+          } as TextContent],
+        };
+      } else {
+        return {
+          content: [{
+            type: 'text',
+            text: '❌ Not connected to AiDD\n\nUse the connect tool to sign in.',
+          } as TextContent],
+        };
+      }
+    } catch (error) {
+      return {
+        content: [{
+          type: 'text',
+          text: `❌ Error checking status: ${error instanceof Error ? error.message : 'Unknown error'}`,
         } as TextContent],
       };
     }
