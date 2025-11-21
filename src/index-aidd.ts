@@ -103,7 +103,7 @@ class AiDDMCPServer {
 
           // Authentication Tools
           case 'connect':
-            return await this.handleConnect();
+            return await this.handleConnect(args);
           case 'disconnect':
             return await this.handleDisconnect();
           case 'status':
@@ -390,8 +390,20 @@ class AiDDMCPServer {
       // =============================================================================
       {
         name: 'connect',
-        description: 'Connect to your AiDD account via browser authentication',
-        inputSchema: { type: 'object', properties: {} },
+        description: 'Connect to your AiDD account with email/password or OAuth',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            email: {
+              type: 'string',
+              description: 'Your AiDD account email (optional - for email/password auth)',
+            },
+            password: {
+              type: 'string',
+              description: 'Your AiDD account password (optional - for email/password auth)',
+            },
+          },
+        },
       },
       {
         name: 'disconnect',
@@ -1048,13 +1060,30 @@ All tasks have been scored and saved to your AiDD account.
   // AUTHENTICATION HANDLERS
   // =============================================================================
 
-  private async handleConnect() {
+  private async handleConnect(args?: any) {
     try {
-      // Trigger authentication
-      const success = await this.backendClient.authenticate();
+      const authManager = (this.backendClient as any).authManager;
+      let success = false;
+
+      // If email/password provided, use email authentication
+      if (args?.email && args?.password) {
+        success = await authManager.signInWithEmail(args.email, args.password);
+
+        if (!success) {
+          return {
+            content: [{
+              type: 'text',
+              text: '❌ Failed to sign in with email/password. Please check your credentials.',
+            } as TextContent],
+          };
+        }
+      } else {
+        // Otherwise use default authentication (device-based)
+        success = await this.backendClient.authenticate();
+      }
 
       if (success) {
-        const info = (this.backendClient as any).authManager.getUserInfo();
+        const info = authManager.getUserInfo();
         return {
           content: [{
             type: 'text',
@@ -1065,7 +1094,7 @@ All tasks have been scored and saved to your AiDD account.
         return {
           content: [{
             type: 'text',
-            text: '❌ Failed to connect to AiDD. Please try again or check your credentials.',
+            text: '❌ Failed to connect to AiDD. Please try again or provide email/password.',
           } as TextContent],
         };
       }
