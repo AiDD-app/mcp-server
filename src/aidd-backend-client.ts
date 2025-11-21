@@ -423,6 +423,234 @@ export class AiDDBackendClient extends EventEmitter {
     }
   }
 
+  // =============================================================================
+  // CRUD METHODS FOR NOTES, ACTION ITEMS, AND TASKS
+  // =============================================================================
+
+  /**
+   * List notes from backend
+   */
+  async listNotes(options: { sortBy?: string; order?: string; limit?: number; offset?: number } = {}): Promise<any[]> {
+    if (!this.deviceToken) {
+      await this.authenticate();
+    }
+
+    try {
+      const params = new URLSearchParams();
+      if (options.sortBy) params.append('sortBy', options.sortBy);
+      if (options.order) params.append('order', options.order);
+      if (options.limit) params.append('limit', options.limit.toString());
+      if (options.offset) params.append('offset', options.offset.toString());
+
+      const response = await fetch(`${this.baseUrl}/api/notes?${params.toString()}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.deviceToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to list notes: ${response.statusText}`);
+      }
+
+      const data = await response.json() as { notes?: any[] };
+      return data.notes || [];
+    } catch (error) {
+      this.emit('error', { type: 'listNotes', error });
+      throw error;
+    }
+  }
+
+  /**
+   * Read a specific note from backend
+   */
+  async readNote(noteId: string): Promise<any> {
+    if (!this.deviceToken) {
+      await this.authenticate();
+    }
+
+    try {
+      const response = await fetch(`${this.baseUrl}/api/notes/${noteId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.deviceToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to read note: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      this.emit('error', { type: 'readNote', error });
+      throw error;
+    }
+  }
+
+  /**
+   * Create a new note in backend
+   */
+  async createNote(note: { title: string; content: string; tags?: string[]; category?: string }): Promise<any> {
+    if (!this.deviceToken) {
+      await this.authenticate();
+    }
+
+    try {
+      const response = await fetch(`${this.baseUrl}/api/notes`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.deviceToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(note),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to create note: ${response.statusText}`);
+      }
+
+      const createdNote = await response.json();
+      this.emit('noteCreated', createdNote);
+      return createdNote;
+    } catch (error) {
+      this.emit('error', { type: 'createNote', error });
+      throw error;
+    }
+  }
+
+  /**
+   * List action items from backend
+   */
+  async listActionItems(options: { sortBy?: string; order?: string; limit?: number; offset?: number } = {}): Promise<ActionItem[]> {
+    if (!this.deviceToken) {
+      await this.authenticate();
+    }
+
+    try {
+      const params = new URLSearchParams();
+      if (options.sortBy) params.append('sortBy', options.sortBy);
+      if (options.order) params.append('order', options.order);
+      if (options.limit) params.append('limit', options.limit.toString());
+      if (options.offset) params.append('offset', options.offset.toString());
+
+      const response = await fetch(`${this.baseUrl}/api/actionItems?${params.toString()}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.deviceToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to list action items: ${response.statusText}`);
+      }
+
+      const data = await response.json() as { actionItems?: ActionItem[] };
+      return data.actionItems || [];
+    } catch (error) {
+      this.emit('error', { type: 'listActionItems', error });
+      throw error;
+    }
+  }
+
+  /**
+   * Read a specific action item from backend
+   */
+  async readActionItem(actionItemId: string): Promise<ActionItem> {
+    if (!this.deviceToken) {
+      await this.authenticate();
+    }
+
+    try {
+      const response = await fetch(`${this.baseUrl}/api/actionItems/${actionItemId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.deviceToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to read action item: ${response.statusText}`);
+      }
+
+      return await response.json() as ActionItem;
+    } catch (error) {
+      this.emit('error', { type: 'readActionItem', error });
+      throw error;
+    }
+  }
+
+  /**
+   * List tasks from backend with sorting support
+   */
+  async listTasks(options: { sortBy?: string; order?: string; limit?: number; offset?: number } = {}): Promise<any[]> {
+    if (!this.deviceToken) {
+      await this.authenticate();
+    }
+
+    try {
+      const params = new URLSearchParams();
+      if (options.sortBy) params.append('sortBy', options.sortBy);
+      if (options.order) params.append('order', options.order);
+      if (options.limit) params.append('limit', options.limit.toString());
+      if (options.offset) params.append('offset', options.offset.toString());
+
+      const response = await fetch(`${this.baseUrl}/api/tasks?${params.toString()}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.deviceToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to list tasks: ${response.statusText}`);
+      }
+
+      const data = await response.json() as { tasks?: any[] };
+      return data.tasks || [];
+    } catch (error) {
+      this.emit('error', { type: 'listTasks', error });
+      throw error;
+    }
+  }
+
+  /**
+   * Read a specific task from backend
+   */
+  async readTask(taskId: string): Promise<any> {
+    if (!this.deviceToken) {
+      await this.authenticate();
+    }
+
+    try {
+      const response = await fetch(`${this.baseUrl}/api/tasks/${taskId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.deviceToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to read task: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      this.emit('error', { type: 'readTask', error });
+      throw error;
+    }
+  }
+
+  // =============================================================================
+  // END OF CRUD METHODS
+  // =============================================================================
+
   /**
    * Get backend health status
    */

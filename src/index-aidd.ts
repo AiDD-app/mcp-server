@@ -16,65 +16,15 @@ import { execAppleScript } from './applescript.js';
 import { AiDDBackendClient } from './aidd-backend-client.js';
 import { z } from 'zod';
 
-// Workflow state management
-interface WorkflowState {
-  currentStep: 'idle' | 'auth' | 'import' | 'extract' | 'convert' | 'score' | 'sync' | 'complete';
-  isAuthenticated: boolean;
-  importedNotes: Array<{ id: string; title: string; content: string }>;
-  extractedActionItems: any[];
-  convertedTasks: any[];
-  scoredTasks: any[];
-  targetService?: string;
-  userId?: string;
-}
-
-// Tool Schemas
-const StartWorkflowSchema = z.object({
-  targetService: z.enum(['google-tasks', 'microsoft-todo', 'trello', 'todoist', 'notion', 'ticktick']).optional(),
-  autoSync: z.boolean().default(false),
-});
-
-const ImportNotesSchema = z.object({
-  folder: z.string().optional(),
-  query: z.string().optional(),
-  limit: z.number().default(50),
-});
-
-const ProcessNotesSchema = z.object({
-  noteIds: z.array(z.string()).optional(),
-  extractionMode: z.enum(['quick', 'comprehensive', 'adhd-optimized']).default('adhd-optimized'),
-});
-
-const ReviewActionItemsSchema = z.object({
-  actionItemIds: z.array(z.string()).optional(),
-  autoApprove: z.boolean().default(false),
-});
-
-const ConvertToTasksSchema = z.object({
-  actionItemIds: z.array(z.string()).optional(),
-  breakdownMode: z.enum(['simple', 'adhd-optimized', 'detailed']).default('adhd-optimized'),
-});
-
-const ScoreAndPrioritizeSchema = z.object({
-  considerCurrentEnergy: z.boolean().default(true),
-  timeOfDay: z.enum(['morning', 'afternoon', 'evening', 'auto']).default('auto'),
-});
-
-const SyncToServiceSchema = z.object({
-  service: z.enum(['google-tasks', 'microsoft-todo', 'trello', 'todoist', 'notion', 'ticktick']),
-  createBackup: z.boolean().default(true),
-});
-
 class AiDDMCPServer {
   private server: Server;
   private backendClient: AiDDBackendClient;
-  private workflowState: WorkflowState;
 
   constructor() {
     this.server = new Server(
       {
         name: 'AiDD',
-        version: '2.0.0',
+        version: '3.0.0',
       },
       {
         capabilities: {
@@ -85,25 +35,12 @@ class AiDDMCPServer {
     );
 
     this.backendClient = new AiDDBackendClient();
-    this.workflowState = {
-      currentStep: 'idle',
-      isAuthenticated: false,
-      importedNotes: [],
-      extractedActionItems: [],
-      convertedTasks: [],
-      scoredTasks: [],
-    };
 
     this.setupHandlers();
     this.setupBackendListeners();
   }
 
   private setupBackendListeners() {
-    this.backendClient.on('authenticated', (data) => {
-      this.workflowState.isAuthenticated = true;
-      this.workflowState.userId = data.userId;
-    });
-
     this.backendClient.on('progress', (data) => {
       console.error(`Progress: ${data.operation} - ${data.progress}% - ${data.message}`);
     });
@@ -136,29 +73,37 @@ class AiDDMCPServer {
 
       try {
         switch (name) {
-          // Workflow Tools
-          case 'start_workflow':
-            return await this.startWorkflow(StartWorkflowSchema.parse(args));
-          case 'import_notes':
-            return await this.importNotes(ImportNotesSchema.parse(args));
-          case 'process_notes':
-            return await this.processNotes(ProcessNotesSchema.parse(args));
-          case 'review_action_items':
-            return await this.reviewActionItems(ReviewActionItemsSchema.parse(args));
+          // Notes Management
+          case 'list_notes':
+            return await this.handleListNotes(args);
+          case 'read_note':
+            return await this.handleReadNote(args);
+          case 'create_note':
+            return await this.handleCreateNote(args);
+          case 'import_apple_notes':
+            return await this.handleImportAppleNotes(args);
+
+          // Action Items Management
+          case 'list_action_items':
+            return await this.handleListActionItems(args);
+          case 'read_action_item':
+            return await this.handleReadActionItem(args);
+          case 'extract_action_items':
+            return await this.handleExtractActionItems(args);
+
+          // Tasks Management
+          case 'list_tasks':
+            return await this.handleListTasks(args);
+          case 'read_task':
+            return await this.handleReadTask(args);
           case 'convert_to_tasks':
-            return await this.convertToTasks(ConvertToTasksSchema.parse(args));
-          case 'score_and_prioritize':
-            return await this.scoreAndPrioritize(ScoreAndPrioritizeSchema.parse(args));
-          case 'sync_to_service':
-            return await this.syncToService(SyncToServiceSchema.parse(args));
+            return await this.handleConvertToTasks(args);
+          case 'score_tasks':
+            return await this.handleScoreTasks(args);
 
           // Utility Tools
-          case 'get_workflow_status':
-            return await this.getWorkflowStatus();
-          case 'reset_workflow':
-            return await this.resetWorkflow();
           case 'check_backend_health':
-            return await this.checkBackendHealth();
+            return await this.handleCheckBackendHealth();
 
           default:
             throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
@@ -177,47 +122,168 @@ class AiDDMCPServer {
 
   private getTools(): Tool[] {
     return [
-      // Main Workflow Tools
+      // =============================================================================
+      // NOTES MANAGEMENT
+      // =============================================================================
       {
-        name: 'start_workflow',
-        description: 'Start the AiDD workflow for processing Apple Notes into tasks',
+        name: 'list_notes',
+        description: 'List notes from your AiDD account with optional sorting and pagination',
         inputSchema: {
           type: 'object',
           properties: {
-            targetService: {
+            sortBy: {
               type: 'string',
-              enum: ['google-tasks', 'microsoft-todo', 'trello', 'todoist', 'notion', 'ticktick'],
-              description: 'Target service for syncing (optional)',
+              enum: ['createdAt', 'updatedAt', 'title'],
+              description: 'Field to sort by (default: updatedAt)',
             },
-            autoSync: {
-              type: 'boolean',
-              description: 'Automatically sync at the end (default: false)',
+            order: {
+              type: 'string',
+              enum: ['asc', 'desc'],
+              description: 'Sort order (default: desc)',
+            },
+            limit: {
+              type: 'number',
+              description: 'Maximum number of notes to return (default: 100)',
+            },
+            offset: {
+              type: 'number',
+              description: 'Number of notes to skip for pagination (default: 0)',
             },
           },
         },
       },
       {
-        name: 'import_notes',
-        description: 'Import notes from Apple Notes for processing',
+        name: 'read_note',
+        description: 'Read a specific note from your AiDD account',
         inputSchema: {
           type: 'object',
           properties: {
-            folder: { type: 'string', description: 'Specific folder to import from (optional)' },
-            query: { type: 'string', description: 'Search query to filter notes (optional)' },
-            limit: { type: 'number', description: 'Maximum notes to import (default: 50)' },
+            noteId: {
+              type: 'string',
+              description: 'ID of the note to read',
+            },
+          },
+          required: ['noteId'],
+        },
+      },
+      {
+        name: 'create_note',
+        description: 'Create a new note in your AiDD account',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'Title of the note',
+            },
+            content: {
+              type: 'string',
+              description: 'Content of the note',
+            },
+            tags: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Tags for the note (optional)',
+            },
+            category: {
+              type: 'string',
+              enum: ['work', 'personal'],
+              description: 'Category of the note (default: personal)',
+            },
+          },
+          required: ['title', 'content'],
+        },
+      },
+      {
+        name: 'import_apple_notes',
+        description: 'Import notes from Apple Notes and save them to your AiDD account or extract action items directly',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            folder: {
+              type: 'string',
+              description: 'Specific Apple Notes folder to import from (optional)',
+            },
+            query: {
+              type: 'string',
+              description: 'Search query to filter notes (optional)',
+            },
+            limit: {
+              type: 'number',
+              description: 'Maximum notes to import (default: 50)',
+            },
+            saveAs: {
+              type: 'string',
+              enum: ['notes', 'action-items'],
+              description: 'Save as AiDD notes or extract action items directly (default: notes)',
+            },
+          },
+        },
+      },
+
+      // =============================================================================
+      // ACTION ITEMS MANAGEMENT
+      // =============================================================================
+      {
+        name: 'list_action_items',
+        description: 'List action items from your AiDD account with optional sorting and pagination',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            sortBy: {
+              type: 'string',
+              enum: ['createdAt', 'updatedAt', 'priority', 'dueDate'],
+              description: 'Field to sort by (default: createdAt)',
+            },
+            order: {
+              type: 'string',
+              enum: ['asc', 'desc'],
+              description: 'Sort order (default: desc)',
+            },
+            limit: {
+              type: 'number',
+              description: 'Maximum number of action items to return (default: 100)',
+            },
+            offset: {
+              type: 'number',
+              description: 'Number of action items to skip for pagination (default: 0)',
+            },
           },
         },
       },
       {
-        name: 'process_notes',
-        description: 'Process imported notes to extract action items using AiDD backend AI',
+        name: 'read_action_item',
+        description: 'Read a specific action item from your AiDD account',
         inputSchema: {
           type: 'object',
           properties: {
+            actionItemId: {
+              type: 'string',
+              description: 'ID of the action item to read',
+            },
+          },
+          required: ['actionItemId'],
+        },
+      },
+      {
+        name: 'extract_action_items',
+        description: 'Extract action items from notes or text using AiDD AI processing',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            source: {
+              type: 'string',
+              enum: ['notes', 'text'],
+              description: 'Extract from saved notes or provided text',
+            },
             noteIds: {
               type: 'array',
               items: { type: 'string' },
-              description: 'Specific note IDs to process (optional)',
+              description: 'Specific note IDs to process (required if source=notes)',
+            },
+            text: {
+              type: 'string',
+              description: 'Text content to extract action items from (required if source=text)',
             },
             extractionMode: {
               type: 'string',
@@ -225,36 +291,64 @@ class AiDDMCPServer {
               description: 'Extraction mode (default: adhd-optimized)',
             },
           },
+          required: ['source'],
         },
       },
+
+      // =============================================================================
+      // TASKS MANAGEMENT
+      // =============================================================================
       {
-        name: 'review_action_items',
-        description: 'Review and optionally edit extracted action items',
+        name: 'list_tasks',
+        description: 'List tasks from your AiDD account with optional sorting and pagination',
         inputSchema: {
           type: 'object',
           properties: {
-            actionItemIds: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Specific items to review (optional)',
+            sortBy: {
+              type: 'string',
+              enum: ['createdAt', 'updatedAt', 'score', 'dueDate'],
+              description: 'Field to sort by (default: score)',
             },
-            autoApprove: {
-              type: 'boolean',
-              description: 'Auto-approve all items (default: false)',
+            order: {
+              type: 'string',
+              enum: ['asc', 'desc'],
+              description: 'Sort order (default: desc for score, asc for dueDate)',
+            },
+            limit: {
+              type: 'number',
+              description: 'Maximum number of tasks to return (default: 100)',
+            },
+            offset: {
+              type: 'number',
+              description: 'Number of tasks to skip for pagination (default: 0)',
             },
           },
         },
       },
       {
+        name: 'read_task',
+        description: 'Read a specific task from your AiDD account',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            taskId: {
+              type: 'string',
+              description: 'ID of the task to read',
+            },
+          },
+          required: ['taskId'],
+        },
+      },
+      {
         name: 'convert_to_tasks',
-        description: 'Convert action items to ADHD-optimized tasks',
+        description: 'Convert action items to ADHD-optimized tasks using AiDD AI processing',
         inputSchema: {
           type: 'object',
           properties: {
             actionItemIds: {
               type: 'array',
               items: { type: 'string' },
-              description: 'Specific items to convert (optional)',
+              description: 'Specific action item IDs to convert (leave empty for all)',
             },
             breakdownMode: {
               type: 'string',
@@ -265,8 +359,8 @@ class AiDDMCPServer {
         },
       },
       {
-        name: 'score_and_prioritize',
-        description: 'Score tasks using AI for optimal prioritization',
+        name: 'score_tasks',
+        description: 'Score all tasks using AiDD AI for optimal ADHD-friendly prioritization',
         inputSchema: {
           type: 'object',
           properties: {
@@ -282,40 +376,13 @@ class AiDDMCPServer {
           },
         },
       },
-      {
-        name: 'sync_to_service',
-        description: 'Sync tasks to your preferred task management service',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            service: {
-              type: 'string',
-              enum: ['google-tasks', 'microsoft-todo', 'trello', 'todoist', 'notion', 'ticktick'],
-              description: 'Service to sync to',
-            },
-            createBackup: {
-              type: 'boolean',
-              description: 'Create backup before sync (default: true)',
-            },
-          },
-          required: ['service'],
-        },
-      },
 
-      // Utility Tools
-      {
-        name: 'get_workflow_status',
-        description: 'Get current workflow status and progress',
-        inputSchema: { type: 'object', properties: {} },
-      },
-      {
-        name: 'reset_workflow',
-        description: 'Reset workflow to start fresh',
-        inputSchema: { type: 'object', properties: {} },
-      },
+      // =============================================================================
+      // UTILITY TOOLS
+      // =============================================================================
       {
         name: 'check_backend_health',
-        description: 'Check AiDD backend service health',
+        description: 'Check AiDD backend service health and connectivity',
         inputSchema: { type: 'object', properties: {} },
       },
     ];
@@ -324,83 +391,142 @@ class AiDDMCPServer {
   private getResources(): Resource[] {
     return [
       {
-        uri: 'aidd://workflow/status',
-        name: 'Workflow Status',
-        description: 'Current AiDD workflow status and progress',
+        uri: 'aidd://notes',
+        name: 'Notes',
+        description: 'All notes from your AiDD account',
         mimeType: 'application/json',
       },
       {
         uri: 'aidd://action-items',
-        name: 'Extracted Action Items',
-        description: 'Action items extracted from notes',
+        name: 'Action Items',
+        description: 'All action items from your AiDD account',
         mimeType: 'application/json',
       },
       {
         uri: 'aidd://tasks',
-        name: 'Converted Tasks',
-        description: 'ADHD-optimized tasks ready for sync',
+        name: 'Tasks',
+        description: 'All ADHD-optimized tasks from your AiDD account',
         mimeType: 'application/json',
       },
       {
-        uri: 'aidd://backend/metrics',
-        name: 'Backend Metrics',
-        description: 'AiDD backend performance metrics',
+        uri: 'aidd://backend/health',
+        name: 'Backend Health',
+        description: 'AiDD backend service health status',
         mimeType: 'application/json',
       },
     ];
   }
 
-  // Workflow Implementation
-  private async startWorkflow(params: z.infer<typeof StartWorkflowSchema>) {
-    // Authenticate with backend
-    const authSuccess = await this.backendClient.authenticate();
+  // =============================================================================
+  // NOTES MANAGEMENT HANDLERS
+  // =============================================================================
 
-    if (!authSuccess) {
+  private async handleListNotes(args: any) {
+    try {
+      const notes = await this.backendClient.listNotes(args);
+
+      const response = `
+📝 **Notes Retrieved**
+
+**Total notes:** ${notes.length}
+
+${notes.slice(0, 10).map((note: any, i: number) => `
+${i + 1}. **${note.title}**
+   • ID: ${note.id}
+   • Category: ${note.category || 'personal'}
+   • Created: ${new Date(note.createdAt).toLocaleDateString()}
+   ${note.tags && note.tags.length > 0 ? `• Tags: ${note.tags.join(', ')}` : ''}
+`).join('\n')}
+${notes.length > 10 ? `\n... and ${notes.length - 10} more notes` : ''}
+      `;
+
       return {
         content: [{
           type: 'text',
-          text: '❌ Failed to authenticate with AiDD backend. Please check your connection.',
+          text: response,
+        } as TextContent],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: 'text',
+          text: `❌ Error listing notes: ${error instanceof Error ? error.message : 'Unknown error'}`,
         } as TextContent],
       };
     }
-
-    this.workflowState.currentStep = 'auth';
-    this.workflowState.targetService = params.targetService;
-
-    const response = `
-🚀 **AiDD Workflow Started**
-
-✅ Authenticated with backend
-👤 User ID: ${this.workflowState.userId}
-
-**Next Steps:**
-1. Import notes from Apple Notes → Use \`import_notes\`
-2. Process notes to extract action items → Use \`process_notes\`
-3. Review and approve action items → Use \`review_action_items\`
-4. Convert to ADHD-optimized tasks → Use \`convert_to_tasks\`
-5. Score and prioritize tasks → Use \`score_and_prioritize\`
-${params.targetService ? `6. Sync to ${params.targetService} → Use \`sync_to_service\`` : '6. Choose service and sync → Use `sync_to_service`'}
-
-${params.autoSync ? '🔄 Auto-sync enabled' : '📌 Manual sync required'}
-
-Ready to import notes. Use \`import_notes\` to begin.
-    `;
-
-    return {
-      content: [{
-        type: 'text',
-        text: response,
-      } as TextContent],
-    };
   }
 
-  private async importNotes(params: z.infer<typeof ImportNotesSchema>) {
-    this.workflowState.currentStep = 'import';
+  private async handleReadNote(args: any) {
+    try {
+      const note = await this.backendClient.readNote(args.noteId);
+
+      const response = `
+📄 **Note Details**
+
+**Title:** ${note.title}
+**ID:** ${note.id}
+**Category:** ${note.category || 'personal'}
+**Created:** ${new Date(note.createdAt).toLocaleDateString()}
+${note.tags && note.tags.length > 0 ? `**Tags:** ${note.tags.join(', ')}` : ''}
+
+**Content:**
+${note.content}
+      `;
+
+      return {
+        content: [{
+          type: 'text',
+          text: response,
+        } as TextContent],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: 'text',
+          text: `❌ Error reading note: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        } as TextContent],
+      };
+    }
+  }
+
+  private async handleCreateNote(args: any) {
+    try {
+      const note = await this.backendClient.createNote(args);
+
+      const response = `
+✅ **Note Created**
+
+**Title:** ${note.title}
+**ID:** ${note.id}
+**Category:** ${note.category || 'personal'}
+${note.tags && note.tags.length > 0 ? `**Tags:** ${note.tags.join(', ')}` : ''}
+
+The note has been saved to your AiDD account.
+      `;
+
+      return {
+        content: [{
+          type: 'text',
+          text: response,
+        } as TextContent],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: 'text',
+          text: `❌ Error creating note: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        } as TextContent],
+      };
+    }
+  }
+
+  private async handleImportAppleNotes(args: any) {
+    const { folder, query, limit = 50, saveAs = 'notes' } = args;
 
     // Build AppleScript query
     let searchCondition = '';
-    if (params.query && params.query !== '*') {
-      searchCondition = `whose body contains "${params.query}" or name contains "${params.query}"`;
+    if (query && query !== '*') {
+      searchCondition = `whose body contains "${query}" or name contains "${query}"`;
     }
 
     const script = `
@@ -408,10 +534,10 @@ Ready to import notes. Use \`import_notes\` to begin.
         tell application "Notes"
           set output to "["
           set noteCount to 0
-          set maxCount to ${params.limit}
+          set maxCount to ${limit}
 
-          ${params.folder ?
-            `set targetFolder to folder "${params.folder}"
+          ${folder ?
+            `set targetFolder to folder "${folder}"
             set allNotes to notes of targetFolder ${searchCondition}` :
             `set allNotes to every note ${searchCondition}`
           }
@@ -462,32 +588,81 @@ Ready to import notes. Use \`import_notes\` to begin.
       const result = await execAppleScript(script);
       const notes = JSON.parse(result);
 
-      this.workflowState.importedNotes = notes;
+      if (saveAs === 'action-items') {
+        // Extract action items directly
+        const actionItems = await this.backendClient.extractActionItems(notes);
 
-      const response = `
-📥 **Notes Imported Successfully**
+        const response = `
+📥 **Apple Notes Imported & Converted to Action Items**
 
 **Summary:**
 • Notes imported: ${notes.length}
-${params.folder ? `• From folder: ${params.folder}` : '• From: All folders'}
-${params.query ? `• Search filter: "${params.query}"` : ''}
+${folder ? `• From folder: ${folder}` : '• From: All folders'}
+${query ? `• Search filter: "${query}"` : ''}
+• Action items extracted: ${actionItems.length}
 
-**Imported Notes:**
-${notes.slice(0, 10).map((note: any, i: number) =>
-  `${i + 1}. ${note.title} (${note.content.slice(0, 50).replace(/\n/g, ' ')}...)`
-).join('\n')}
-${notes.length > 10 ? `\n... and ${notes.length - 10} more notes` : ''}
+**Extracted Action Items:**
+${actionItems.slice(0, 10).map((item: any, i: number) => `
+${i + 1}. **${item.title}**
+   • Priority: ${item.priority}
+   • Category: ${item.category}
+   ${item.dueDate ? `• Due: ${item.dueDate}` : ''}
+`).join('\n')}
+${actionItems.length > 10 ? `\n... and ${actionItems.length - 10} more items` : ''}
 
-**Next Step:** Process notes to extract action items
-Use \`process_notes\` to continue.
-      `;
+Action items have been saved to your AiDD account.
+        `;
 
-      return {
-        content: [{
-          type: 'text',
-          text: response,
-        } as TextContent],
-      };
+        return {
+          content: [{
+            type: 'text',
+            text: response,
+          } as TextContent],
+        };
+      } else {
+        // Save as notes
+        const savedNotes = [];
+        for (const note of notes) {
+          try {
+            const saved = await this.backendClient.createNote({
+              title: note.title,
+              content: note.content,
+              tags: [],
+              category: 'personal',
+            });
+            savedNotes.push(saved);
+          } catch (error) {
+            console.error(`Failed to save note: ${note.title}`, error);
+          }
+        }
+
+        const response = `
+📥 **Apple Notes Imported & Saved**
+
+**Summary:**
+• Notes imported: ${notes.length}
+${folder ? `• From folder: ${folder}` : '• From: All folders'}
+${query ? `• Search filter: "${query}"` : ''}
+• Notes saved: ${savedNotes.length}
+
+**Saved Notes:**
+${savedNotes.slice(0, 10).map((note: any, i: number) => `
+${i + 1}. **${note.title}**
+   • ID: ${note.id}
+   • Category: ${note.category}
+`).join('\n')}
+${savedNotes.length > 10 ? `\n... and ${savedNotes.length - 10} more notes` : ''}
+
+Notes have been saved to your AiDD account.
+        `;
+
+        return {
+          content: [{
+            type: 'text',
+            text: response,
+          } as TextContent],
+        };
+      }
     } catch (error) {
       return {
         content: [{
@@ -498,48 +673,28 @@ Use \`process_notes\` to continue.
     }
   }
 
-  private async processNotes(params: z.infer<typeof ProcessNotesSchema>) {
-    if (this.workflowState.importedNotes.length === 0) {
-      return {
-        content: [{
-          type: 'text',
-          text: '⚠️ No notes imported. Please use `import_notes` first.',
-        } as TextContent],
-      };
-    }
+  // =============================================================================
+  // ACTION ITEMS MANAGEMENT HANDLERS
+  // =============================================================================
 
-    this.workflowState.currentStep = 'extract';
-
-    const notesToProcess = params.noteIds
-      ? this.workflowState.importedNotes.filter(n => params.noteIds?.includes(n.id))
-      : this.workflowState.importedNotes;
-
+  private async handleListActionItems(args: any) {
     try {
-      // Extract action items using backend AI
-      const actionItems = await this.backendClient.extractActionItems(notesToProcess);
-      this.workflowState.extractedActionItems = actionItems;
+      const actionItems = await this.backendClient.listActionItems(args);
 
       const response = `
-🔍 **Action Items Extracted**
+📋 **Action Items Retrieved**
 
-**Extraction Summary:**
-• Notes processed: ${notesToProcess.length}
-• Action items found: ${actionItems.length}
-• Mode: ${params.extractionMode}
+**Total action items:** ${actionItems.length}
 
-**Extracted Action Items:**
 ${actionItems.slice(0, 10).map((item: any, i: number) => `
 ${i + 1}. **${item.title}**
+   • ID: ${item.id}
    • Priority: ${item.priority}
    • Category: ${item.category}
-   • Confidence: ${(item.confidence * 100).toFixed(0)}%
-   ${item.dueDate ? `• Due: ${item.dueDate}` : ''}
-   ${item.tags.length > 0 ? `• Tags: ${item.tags.join(', ')}` : ''}
+   ${item.dueDate ? `• Due: ${new Date(item.dueDate).toLocaleDateString()}` : ''}
+   ${item.tags && item.tags.length > 0 ? `• Tags: ${item.tags.join(', ')}` : ''}
 `).join('\n')}
 ${actionItems.length > 10 ? `\n... and ${actionItems.length - 10} more items` : ''}
-
-**Next Step:** Review action items
-Use \`review_action_items\` to review or \`convert_to_tasks\` to proceed directly.
       `;
 
       return {
@@ -552,99 +707,229 @@ Use \`review_action_items\` to review or \`convert_to_tasks\` to proceed directl
       return {
         content: [{
           type: 'text',
-          text: `❌ Error processing notes: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          text: `❌ Error listing action items: ${error instanceof Error ? error.message : 'Unknown error'}`,
         } as TextContent],
       };
     }
   }
 
-  private async reviewActionItems(params: z.infer<typeof ReviewActionItemsSchema>) {
-    if (this.workflowState.extractedActionItems.length === 0) {
-      return {
-        content: [{
-          type: 'text',
-          text: '⚠️ No action items to review. Please use `process_notes` first.',
-        } as TextContent],
-      };
-    }
-
-    const itemsToReview = params.actionItemIds
-      ? this.workflowState.extractedActionItems.filter(i => params.actionItemIds?.includes(i.id))
-      : this.workflowState.extractedActionItems;
-
-    if (params.autoApprove) {
-      return {
-        content: [{
-          type: 'text',
-          text: `✅ Auto-approved ${itemsToReview.length} action items. Use \`convert_to_tasks\` to continue.`,
-        } as TextContent],
-      };
-    }
-
-    const response = `
-📋 **Review Action Items**
-
-${itemsToReview.map((item: any, i: number) => `
-**${i + 1}. ${item.title}**
-• Description: ${item.description}
-• Priority: ${item.priority}
-• Category: ${item.category}
-• Confidence: ${(item.confidence * 100).toFixed(0)}%
-${item.dueDate ? `• Due: ${item.dueDate}` : ''}
-${item.tags.length > 0 ? `• Tags: ${item.tags.join(', ')}` : ''}
-`).join('\n---\n')}
-
-**Options:**
-• To approve all: Use \`review_action_items\` with \`autoApprove: true\`
-• To continue: Use \`convert_to_tasks\`
-• To re-extract: Use \`process_notes\` with different mode
-    `;
-
-    return {
-      content: [{
-        type: 'text',
-        text: response,
-      } as TextContent],
-    };
-  }
-
-  private async convertToTasks(params: z.infer<typeof ConvertToTasksSchema>) {
-    if (this.workflowState.extractedActionItems.length === 0) {
-      return {
-        content: [{
-          type: 'text',
-          text: '⚠️ No action items to convert. Please extract action items first.',
-        } as TextContent],
-      };
-    }
-
-    this.workflowState.currentStep = 'convert';
-
-    const itemsToConvert = params.actionItemIds
-      ? this.workflowState.extractedActionItems.filter(i => params.actionItemIds?.includes(i.id))
-      : this.workflowState.extractedActionItems;
-
+  private async handleReadActionItem(args: any) {
     try {
-      // Convert to ADHD-optimized tasks using backend AI
-      const tasks = await this.backendClient.convertToTasks(itemsToConvert);
-      this.workflowState.convertedTasks = tasks;
+      const item = await this.backendClient.readActionItem(args.actionItemId);
+
+      const response = `
+📋 **Action Item Details**
+
+**Title:** ${item.title}
+**ID:** ${item.id}
+**Priority:** ${item.priority}
+**Category:** ${item.category}
+${item.dueDate ? `**Due Date:** ${new Date(item.dueDate).toLocaleDateString()}` : ''}
+${item.tags && item.tags.length > 0 ? `**Tags:** ${item.tags.join(', ')}` : ''}
+
+**Description:**
+${item.description || 'No description'}
+      `;
+
+      return {
+        content: [{
+          type: 'text',
+          text: response,
+        } as TextContent],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: 'text',
+          text: `❌ Error reading action item: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        } as TextContent],
+      };
+    }
+  }
+
+  private async handleExtractActionItems(args: any) {
+    try {
+      const { source, noteIds, text, extractionMode = 'adhd-optimized' } = args;
+
+      let notesToProcess: any[] = [];
+
+      if (source === 'notes') {
+        if (!noteIds || noteIds.length === 0) {
+          // Get all notes
+          const allNotes = await this.backendClient.listNotes({});
+          notesToProcess = allNotes;
+        } else {
+          // Get specific notes
+          for (const noteId of noteIds) {
+            const note = await this.backendClient.readNote(noteId);
+            notesToProcess.push(note);
+          }
+        }
+      } else if (source === 'text') {
+        if (!text) {
+          throw new Error('Text content is required when source is "text"');
+        }
+        notesToProcess = [{
+          id: 'temp',
+          title: 'User Provided Text',
+          content: text,
+        }];
+      }
+
+      const actionItems = await this.backendClient.extractActionItems(notesToProcess);
+
+      const response = `
+🔍 **Action Items Extracted**
+
+**Summary:**
+• Source: ${source === 'notes' ? `${notesToProcess.length} notes` : 'provided text'}
+• Extraction mode: ${extractionMode}
+• Action items found: ${actionItems.length}
+
+**Extracted Action Items:**
+${actionItems.slice(0, 10).map((item: any, i: number) => `
+${i + 1}. **${item.title}**
+   • Priority: ${item.priority}
+   • Category: ${item.category}
+   • Confidence: ${(item.confidence * 100).toFixed(0)}%
+   ${item.dueDate ? `• Due: ${item.dueDate}` : ''}
+   ${item.tags && item.tags.length > 0 ? `• Tags: ${item.tags.join(', ')}` : ''}
+`).join('\n')}
+${actionItems.length > 10 ? `\n... and ${actionItems.length - 10} more items` : ''}
+
+Action items have been saved to your AiDD account.
+      `;
+
+      return {
+        content: [{
+          type: 'text',
+          text: response,
+        } as TextContent],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: 'text',
+          text: `❌ Error extracting action items: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        } as TextContent],
+      };
+    }
+  }
+
+  // =============================================================================
+  // TASKS MANAGEMENT HANDLERS
+  // =============================================================================
+
+  private async handleListTasks(args: any) {
+    try {
+      const tasks = await this.backendClient.listTasks(args);
+
+      const response = `
+✅ **Tasks Retrieved**
+
+**Total tasks:** ${tasks.length}
+
+${tasks.slice(0, 10).map((task: any, i: number) => `
+${i + 1}. **${task.title}**
+   • ID: ${task.id}
+   ${task.score !== undefined ? `• Score: ${task.score}/100` : ''}
+   ${task.estimatedTime ? `• Time: ${task.estimatedTime} min` : ''}
+   ${task.energyRequired ? `• Energy: ${task.energyRequired}` : ''}
+   ${task.dueDate ? `• Due: ${new Date(task.dueDate).toLocaleDateString()}` : ''}
+`).join('\n')}
+${tasks.length > 10 ? `\n... and ${tasks.length - 10} more tasks` : ''}
+      `;
+
+      return {
+        content: [{
+          type: 'text',
+          text: response,
+        } as TextContent],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: 'text',
+          text: `❌ Error listing tasks: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        } as TextContent],
+      };
+    }
+  }
+
+  private async handleReadTask(args: any) {
+    try {
+      const task = await this.backendClient.readTask(args.taskId);
+
+      const response = `
+✅ **Task Details**
+
+**Title:** ${task.title}
+**ID:** ${task.id}
+${task.score !== undefined ? `**Score:** ${task.score}/100` : ''}
+${task.estimatedTime ? `**Estimated Time:** ${task.estimatedTime} minutes` : ''}
+${task.energyRequired ? `**Energy Required:** ${task.energyRequired}` : ''}
+${task.taskType ? `**Task Type:** ${task.taskType}` : ''}
+${task.dueDate ? `**Due Date:** ${new Date(task.dueDate).toLocaleDateString()}` : ''}
+${task.tags && task.tags.length > 0 ? `**Tags:** ${task.tags.join(', ')}` : ''}
+
+**Description:**
+${task.description || 'No description'}
+
+${task.dependsOnTaskOrders && task.dependsOnTaskOrders.length > 0 ?
+  `**Dependencies:** Tasks ${task.dependsOnTaskOrders.join(', ')}` : ''}
+      `;
+
+      return {
+        content: [{
+          type: 'text',
+          text: response,
+        } as TextContent],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: 'text',
+          text: `❌ Error reading task: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        } as TextContent],
+      };
+    }
+  }
+
+  private async handleConvertToTasks(args: any) {
+    try {
+      const { actionItemIds, breakdownMode = 'adhd-optimized' } = args;
+
+      let actionItems: any[] = [];
+
+      if (!actionItemIds || actionItemIds.length === 0) {
+        // Convert all action items
+        actionItems = await this.backendClient.listActionItems({});
+      } else {
+        // Convert specific action items
+        for (const id of actionItemIds) {
+          const item = await this.backendClient.readActionItem(id);
+          actionItems.push(item);
+        }
+      }
+
+      const tasks = await this.backendClient.convertToTasks(actionItems);
 
       const response = `
 ✨ **Tasks Created (ADHD-Optimized)**
 
-**Conversion Summary:**
-• Action items converted: ${itemsToConvert.length}
+**Summary:**
+• Action items converted: ${actionItems.length}
 • Tasks created: ${tasks.length}
-• Mode: ${params.breakdownMode}
-• Average tasks per item: ${(tasks.length / itemsToConvert.length).toFixed(1)}
+• Breakdown mode: ${breakdownMode}
+• Average tasks per item: ${(tasks.length / actionItems.length).toFixed(1)}
 
-**Converted Tasks:**
+**Created Tasks:**
 ${tasks.slice(0, 15).map((task: any, i: number) => `
 ${i + 1}. **${task.title}**
    • Time: ${task.estimatedTime} min
    • Energy: ${task.energyRequired}
    • Type: ${task.taskType}
-   ${task.dependsOnTaskOrders.length > 0 ? `• Depends on: Task ${task.dependsOnTaskOrders.join(', ')}` : ''}
+   ${task.dependsOnTaskOrders && task.dependsOnTaskOrders.length > 0 ? `• Depends on: Task ${task.dependsOnTaskOrders.join(', ')}` : ''}
 `).join('\n')}
 ${tasks.length > 15 ? `\n... and ${tasks.length - 15} more tasks` : ''}
 
@@ -655,8 +940,7 @@ ${tasks.length > 15 ? `\n... and ${tasks.length - 15} more tasks` : ''}
 • Creative: ${tasks.filter((t: any) => t.taskType === 'creative').length}
 • Administrative: ${tasks.filter((t: any) => t.taskType === 'administrative').length}
 
-**Next Step:** Score and prioritize tasks
-Use \`score_and_prioritize\` to continue.
+Tasks have been saved to your AiDD account.
       `;
 
       return {
@@ -669,66 +953,56 @@ Use \`score_and_prioritize\` to continue.
       return {
         content: [{
           type: 'text',
-          text: `❌ Error converting tasks: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          text: `❌ Error converting to tasks: ${error instanceof Error ? error.message : 'Unknown error'}`,
         } as TextContent],
       };
     }
   }
 
-  private async scoreAndPrioritize(params: z.infer<typeof ScoreAndPrioritizeSchema>) {
-    if (this.workflowState.convertedTasks.length === 0) {
-      return {
-        content: [{
-          type: 'text',
-          text: '⚠️ No tasks to score. Please convert action items first.',
-        } as TextContent],
-      };
-    }
-
-    this.workflowState.currentStep = 'score';
-
+  private async handleScoreTasks(args: any) {
     try {
+      const { considerCurrentEnergy = true, timeOfDay = 'auto' } = args;
+
+      // Get all tasks
+      const tasks = await this.backendClient.listTasks({});
+
       // Score tasks using backend AI
-      const scoredTasks = await this.backendClient.scoreTasks(this.workflowState.convertedTasks);
-      this.workflowState.scoredTasks = scoredTasks;
+      const scoredTasks = await this.backendClient.scoreTasks(tasks);
 
       // Sort by score
       scoredTasks.sort((a: any, b: any) => b.score - a.score);
 
-      const timeOfDay = params.timeOfDay === 'auto'
-        ? this.getTimeOfDay()
-        : params.timeOfDay;
+      const actualTimeOfDay = timeOfDay === 'auto' ? this.getTimeOfDay() : timeOfDay;
 
       const response = `
 🎯 **Tasks Scored & Prioritized**
 
-**Scoring Summary:**
+**Summary:**
 • Tasks scored: ${scoredTasks.length}
-• Time optimization: ${timeOfDay}
-• Energy considered: ${params.considerCurrentEnergy ? 'Yes' : 'No'}
+• Time optimization: ${actualTimeOfDay}
+• Energy considered: ${considerCurrentEnergy ? 'Yes' : 'No'}
 
 **Top Priority Tasks (Next 2 Hours):**
 ${scoredTasks.slice(0, 5).map((task: any, i: number) => `
 ${i + 1}. **${task.title}** (Score: ${task.score}/100)
-   • Urgency: ${task.factors.urgency}/10
-   • Importance: ${task.factors.importance}/10
-   • Effort: ${task.factors.effort}/10
-   • ADHD Match: ${task.factors.adhd_compatibility}/10
-   📝 ${task.recommendation}
+   ${task.factors ? `• Urgency: ${task.factors.urgency}/10` : ''}
+   ${task.factors ? `• Importance: ${task.factors.importance}/10` : ''}
+   ${task.factors ? `• Effort: ${task.factors.effort}/10` : ''}
+   ${task.factors ? `• ADHD Match: ${task.factors.adhd_compatibility}/10` : ''}
+   ${task.recommendation ? `📝 ${task.recommendation}` : ''}
 `).join('\n')}
 
 **Suggested Schedule:**
 🌅 **Morning (High Energy):**
-${scoredTasks.filter((t: any) => t.factors.effort >= 7).slice(0, 3).map((t: any) => `  • ${t.title}`).join('\n')}
+${scoredTasks.filter((t: any) => t.factors && t.factors.effort >= 7).slice(0, 3).map((t: any) => `  • ${t.title}`).join('\n') || '  No high-energy tasks'}
 
 ☀️ **Afternoon (Medium Energy):**
-${scoredTasks.filter((t: any) => t.factors.effort >= 4 && t.factors.effort < 7).slice(0, 3).map((t: any) => `  • ${t.title}`).join('\n')}
+${scoredTasks.filter((t: any) => t.factors && t.factors.effort >= 4 && t.factors.effort < 7).slice(0, 3).map((t: any) => `  • ${t.title}`).join('\n') || '  No medium-energy tasks'}
 
 🌙 **Evening (Low Energy):**
-${scoredTasks.filter((t: any) => t.factors.effort < 4).slice(0, 3).map((t: any) => `  • ${t.title}`).join('\n')}
+${scoredTasks.filter((t: any) => t.factors && t.factors.effort < 4).slice(0, 3).map((t: any) => `  • ${t.title}`).join('\n') || '  No low-energy tasks'}
 
-**Next Step:** Sync to your task management service
-Use \`sync_to_service\` with your preferred service.
+All tasks have been scored and saved to your AiDD account.
       `;
 
       return {
@@ -747,178 +1021,35 @@ Use \`sync_to_service\` with your preferred service.
     }
   }
 
-  private async syncToService(params: z.infer<typeof SyncToServiceSchema>) {
-    if (this.workflowState.convertedTasks.length === 0) {
+  // =============================================================================
+  // UTILITY HANDLERS
+  // =============================================================================
+
+  private async handleCheckBackendHealth() {
+    try {
+      const isHealthy = await this.backendClient.checkHealth();
+
+      const response = isHealthy
+        ? '✅ AiDD backend is healthy and responding'
+        : '❌ AiDD backend is not responding. Please check your connection.';
+
       return {
         content: [{
           type: 'text',
-          text: '⚠️ No tasks to sync. Please complete the workflow first.',
+          text: response,
         } as TextContent],
       };
-    }
-
-    this.workflowState.currentStep = 'sync';
-
-    try {
-      const success = await this.backendClient.syncTasks(
-        this.workflowState.convertedTasks,
-        params.service
-      );
-
-      if (success) {
-        this.workflowState.currentStep = 'complete';
-
-        const response = `
-🎉 **Sync Complete!**
-
-✅ Successfully synced ${this.workflowState.convertedTasks.length} tasks to **${params.service}**
-
-**Summary:**
-• Notes processed: ${this.workflowState.importedNotes.length}
-• Action items extracted: ${this.workflowState.extractedActionItems.length}
-• Tasks created: ${this.workflowState.convertedTasks.length}
-• Tasks synced: ${this.workflowState.convertedTasks.length}
-${params.createBackup ? '• Backup created: Yes' : ''}
-
-**What's Next:**
-1. Open ${params.service} to see your new tasks
-2. Tasks are organized by priority and energy level
-3. Start with the top-priority quick wins
-4. Take breaks between focus-intensive tasks
-
-**Workflow Complete!** 🚀
-
-To process more notes, use \`reset_workflow\` and start again.
-        `;
-
-        return {
-          content: [{
-            type: 'text',
-            text: response,
-          } as TextContent],
-        };
-      } else {
-        return {
-          content: [{
-            type: 'text',
-            text: `❌ Sync failed. Please check your ${params.service} credentials and try again.`,
-          } as TextContent],
-        };
-      }
     } catch (error) {
       return {
         content: [{
           type: 'text',
-          text: `❌ Error syncing: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          text: `❌ Error checking backend health: ${error instanceof Error ? error.message : 'Unknown error'}`,
         } as TextContent],
       };
     }
   }
 
-  private async getWorkflowStatus() {
-    const statusEmoji = {
-      idle: '💤',
-      auth: '🔐',
-      import: '📥',
-      extract: '🔍',
-      convert: '✨',
-      score: '🎯',
-      sync: '🔄',
-      complete: '✅',
-    };
-
-    const response = `
-${statusEmoji[this.workflowState.currentStep]} **AiDD Workflow Status**
-
-**Current Step:** ${this.workflowState.currentStep}
-**Authenticated:** ${this.workflowState.isAuthenticated ? '✅' : '❌'}
-${this.workflowState.userId ? `**User ID:** ${this.workflowState.userId}` : ''}
-
-**Progress:**
-• Notes imported: ${this.workflowState.importedNotes.length}
-• Action items extracted: ${this.workflowState.extractedActionItems.length}
-• Tasks created: ${this.workflowState.convertedTasks.length}
-• Tasks scored: ${this.workflowState.scoredTasks.length}
-${this.workflowState.targetService ? `• Target service: ${this.workflowState.targetService}` : ''}
-
-**Available Actions:**
-${this.getAvailableActions().map(a => `• ${a}`).join('\n')}
-    `;
-
-    return {
-      content: [{
-        type: 'text',
-        text: response,
-      } as TextContent],
-    };
-  }
-
-  private async resetWorkflow() {
-    this.workflowState = {
-      currentStep: 'idle',
-      isAuthenticated: false,
-      importedNotes: [],
-      extractedActionItems: [],
-      convertedTasks: [],
-      scoredTasks: [],
-    };
-
-    return {
-      content: [{
-        type: 'text',
-        text: '🔄 Workflow reset. Use `start_workflow` to begin again.',
-      } as TextContent],
-    };
-  }
-
-  private async checkBackendHealth() {
-    const isHealthy = await this.backendClient.checkHealth();
-
-    const response = isHealthy
-      ? '✅ AiDD backend is healthy and responding'
-      : '❌ AiDD backend is not responding. Please check your connection.';
-
-    return {
-      content: [{
-        type: 'text',
-        text: response,
-      } as TextContent],
-    };
-  }
-
   // Helper methods
-  private getAvailableActions(): string[] {
-    const actions: string[] = [];
-
-    switch (this.workflowState.currentStep) {
-      case 'idle':
-        actions.push('start_workflow - Begin the AiDD workflow');
-        break;
-      case 'auth':
-        actions.push('import_notes - Import notes from Apple Notes');
-        break;
-      case 'import':
-        actions.push('process_notes - Extract action items');
-        break;
-      case 'extract':
-        actions.push('review_action_items - Review extracted items');
-        actions.push('convert_to_tasks - Convert to tasks');
-        break;
-      case 'convert':
-        actions.push('score_and_prioritize - Score and prioritize tasks');
-        break;
-      case 'score':
-        actions.push('sync_to_service - Sync to task management service');
-        break;
-      case 'complete':
-        actions.push('reset_workflow - Start a new workflow');
-        break;
-    }
-
-    actions.push('get_workflow_status - Check current status');
-    return actions;
-  }
-
   private getTimeOfDay(): string {
     const hour = new Date().getHours();
     if (hour < 12) return 'morning';
@@ -928,40 +1059,43 @@ ${this.getAvailableActions().map(a => `• ${a}`).join('\n')}
 
   private async handleResourceRead(uri: string) {
     switch (uri) {
-      case 'aidd://workflow/status':
+      case 'aidd://notes':
+        const notes = await this.backendClient.listNotes({});
         return {
           contents: [{
             uri,
             mimeType: 'application/json',
-            text: JSON.stringify(this.workflowState, null, 2),
+            text: JSON.stringify(notes, null, 2),
           }],
         };
 
       case 'aidd://action-items':
+        const actionItems = await this.backendClient.listActionItems({});
         return {
           contents: [{
             uri,
             mimeType: 'application/json',
-            text: JSON.stringify(this.workflowState.extractedActionItems, null, 2),
+            text: JSON.stringify(actionItems, null, 2),
           }],
         };
 
       case 'aidd://tasks':
+        const tasks = await this.backendClient.listTasks({});
         return {
           contents: [{
             uri,
             mimeType: 'application/json',
-            text: JSON.stringify(this.workflowState.convertedTasks, null, 2),
+            text: JSON.stringify(tasks, null, 2),
           }],
         };
 
-      case 'aidd://backend/metrics':
-        // Would fetch from backend monitoring endpoint
+      case 'aidd://backend/health':
+        const isHealthy = await this.backendClient.checkHealth();
         return {
           contents: [{
             uri,
             mimeType: 'application/json',
-            text: JSON.stringify({ status: 'healthy', uptime: '99.9%' }, null, 2),
+            text: JSON.stringify({ healthy: isHealthy }, null, 2),
           }],
         };
 
@@ -973,7 +1107,7 @@ ${this.getAvailableActions().map(a => `• ${a}`).join('\n')}
   async run() {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
-    console.error('AiDD MCP Server running (v2.0 - Backend Integrated)...');
+    console.error('AiDD MCP Server running (v3.0 - Comprehensive CRUD)...');
   }
 }
 
