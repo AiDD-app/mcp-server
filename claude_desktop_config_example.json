@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "GitHub": {
+      "command": "npx",
+      "args": ["@github/mcp"],
+      "env": {}
+    },
+    "JIRA": {
+      "command": "npx",
+      "args": ["@atlassian/jira-mcp"],
+      "env": {}
+    },
+    "Slack": {
+      "command": "npx",
+      "args": ["@slack/mcp"],
+      "env": {}
+    },
+    "AiDD": {
+      "command": "npx",
+      "args": ["@aidd-app/mcp"],
+      "env": {}
+    }
+  }
+}

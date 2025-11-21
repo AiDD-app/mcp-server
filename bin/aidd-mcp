@@ -1,0 +1,24 @@
+#!/usr/bin/env node
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import { spawn } from 'child_process';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const mainScript = join(__dirname, '..', 'dist', 'index-browser-auth.js');
+
+// Pass through all stdio to make the MCP protocol work
+const child = spawn('node', [mainScript], {
+  stdio: 'inherit',
+  env: process.env
+});
+
+// Pass through the exit code
+child.on('exit', (code) => {
+  process.exit(code || 0);
+});
+
+// Handle errors
+child.on('error', (err) => {
+  console.error('Failed to start AiDD MCP server:', err);
+  process.exit(1);
+});

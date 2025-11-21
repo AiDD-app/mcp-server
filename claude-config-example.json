@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "AiDD": {
+      "command": "node",
+      "args": ["/Users/marcfridson/Documents/AiDD/claude-apple-notes-mcp/dist/index-aidd-auth.js"],
+      "env": {
+        "AIDD_EMAIL": "your.email@example.com",
+        "AIDD_PASSWORD": "your-password-here",
+        "AIDD_AUTH_METHOD": "email"
+      }
+    }
+  }
+}
