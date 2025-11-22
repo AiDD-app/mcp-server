@@ -55,11 +55,22 @@ export class AiDDBackendClient extends EventEmitter {
   private userId?: string;
   private authManager: AuthManager;
   private useUserAuth: boolean = false;
+  private oauthToken?: string;
 
-  constructor() {
+  constructor(oauthToken?: string) {
     super();
+    this.oauthToken = oauthToken;
     this.authManager = new AuthManager();
-    this.checkUserAuth();
+
+    // If OAuth token is provided (web connector mode), use it directly
+    if (oauthToken) {
+      this.useUserAuth = true;
+      this.deviceToken = oauthToken;
+      console.log('🔑 Using OAuth token from web connector');
+    } else {
+      // Desktop mode - check local credentials
+      this.checkUserAuth();
+    }
   }
 
   /**
@@ -142,6 +153,15 @@ export class AiDDBackendClient extends EventEmitter {
    */
   private async getAuthHeaders(): Promise<Record<string, string>> {
     if (this.useUserAuth) {
+      // Web connector mode - use OAuth token directly
+      if (this.oauthToken) {
+        return {
+          'Authorization': `Bearer ${this.oauthToken}`,
+          'Content-Type': 'application/json',
+        };
+      }
+
+      // Desktop mode - get token from AuthManager
       const token = await this.authManager.getAccessToken();
       if (token) {
         return {
