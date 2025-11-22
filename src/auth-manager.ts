@@ -3,6 +3,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
+import { BrowserOAuthFlow } from './oauth-flow.js';
 
 interface UserCredentials {
   email?: string;
@@ -26,11 +27,13 @@ export class AuthManager {
   private baseUrl = 'https://aidd-backend-prod-739193356129.us-central1.run.app';
   private credentials: UserCredentials = {};
   private credentialsPath: string;
+  private oauthFlow: BrowserOAuthFlow;
 
   constructor() {
     // Store credentials in user's home directory
     const configDir = path.join(os.homedir(), '.aidd-mcp');
     this.credentialsPath = path.join(configDir, 'credentials.json');
+    this.oauthFlow = new BrowserOAuthFlow();
     this.loadCredentials();
   }
 
@@ -72,75 +75,51 @@ export class AuthManager {
   }
 
   /**
-   * Sign in with Google OAuth
+   * Sign in with OAuth (browser-based)
+   * Opens browser for authentication
+   * Supports Google, Microsoft, and Apple
    */
-  async signInWithGoogle(googleIdToken: string): Promise<boolean> {
+  async signInWithOAuth(provider?: 'google' | 'microsoft' | 'apple'): Promise<boolean> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/auth/google`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ idToken: googleIdToken }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Google sign-in failed: ${response.statusText}`);
-      }
-
-      const data = await response.json() as any;
+      console.log(`\n🔐 Starting ${provider || 'OAuth'} sign-in...`);
+      const result = await this.oauthFlow.authenticate(provider);
 
       this.credentials = {
-        email: data.user?.email || data.email,
-        userId: data.user?.userId || data.userId,
-        accessToken: data.tokens?.accessToken || data.accessToken,
-        refreshToken: data.tokens?.refreshToken || data.refreshToken,
-        expiresAt: Date.now() + ((data.tokens?.expiresIn || data.expiresIn) * 1000),
-        subscription: (data.user?.subscription || data.subscription || 'FREE') as 'FREE' | 'PREMIUM' | 'PRO'
+        email: result.email,
+        userId: result.userId,
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        expiresAt: Date.now() + (result.expiresIn * 1000),
+        subscription: result.subscription as 'FREE' | 'PREMIUM' | 'PRO'
       };
 
       await this.saveCredentials();
       return true;
     } catch (error) {
-      console.error('Google sign-in error:', error);
+      console.error('OAuth sign-in error:', error);
       return false;
     }
   }
 
   /**
-   * Sign in with Microsoft OAuth
+   * Sign in with Google OAuth (browser-based)
    */
-  async signInWithMicrosoft(microsoftAccessToken: string): Promise<boolean> {
-    try {
-      const response = await fetch(`${this.baseUrl}/api/auth/microsoft`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ accessToken: microsoftAccessToken }),
-      });
+  async signInWithGoogle(): Promise<boolean> {
+    return this.signInWithOAuth('google');
+  }
 
-      if (!response.ok) {
-        throw new Error(`Microsoft sign-in failed: ${response.statusText}`);
-      }
+  /**
+   * Sign in with Microsoft OAuth (browser-based)
+   */
+  async signInWithMicrosoft(): Promise<boolean> {
+    return this.signInWithOAuth('microsoft');
+  }
 
-      const data = await response.json() as any;
-
-      this.credentials = {
-        email: data.user?.email || data.email,
-        userId: data.user?.userId || data.userId,
-        accessToken: data.tokens?.accessToken || data.accessToken,
-        refreshToken: data.tokens?.refreshToken || data.refreshToken,
-        expiresAt: Date.now() + ((data.tokens?.expiresIn || data.expiresIn) * 1000),
-        subscription: (data.user?.subscription || data.subscription || 'FREE') as 'FREE' | 'PREMIUM' | 'PRO'
-      };
-
-      await this.saveCredentials();
-      return true;
-    } catch (error) {
-      console.error('Microsoft sign-in error:', error);
-      return false;
-    }
+  /**
+   * Sign in with Apple OAuth (browser-based)
+   */
+  async signInWithApple(): Promise<boolean> {
+    return this.signInWithOAuth('apple');
   }
 
   /**

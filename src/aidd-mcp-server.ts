@@ -360,10 +360,16 @@ export class AiDDMCPServer {
       // =============================================================================
       {
         name: 'connect',
-        description: 'Connect to your AiDD account. Opens browser to unified auth page where you can choose: Email/Password, Google, Apple, or Microsoft.',
+        description: 'Connect to your AiDD account. Opens browser for authentication where you can choose: Email/Password, Google, Apple, or Microsoft.',
         inputSchema: {
           type: 'object',
-          properties: {},
+          properties: {
+            provider: {
+              type: 'string',
+              enum: ['google', 'microsoft', 'apple'],
+              description: 'Optional: Specific OAuth provider to use (google, microsoft, apple). If not specified, user can choose provider in browser.',
+            },
+          },
         },
       },
       {
@@ -871,9 +877,42 @@ All tasks have been scored and saved to your AiDD account.
   private async handleConnect(args?: any) {
     try {
       const authManager = (this.backendClient as any).authManager;
-      const success = await this.backendClient.authenticate();
+
+      // Check if already authenticated
+      if (authManager.isSignedIn()) {
+        const info = authManager.getUserInfo();
+        return {
+          content: [{
+            type: 'text',
+            text: `✅ Already connected to AiDD\n\n📧 Email: ${info.email || 'Unknown'}\n💎 Subscription: ${info.subscription || 'FREE'}\n🔑 User ID: ${info.userId || 'Unknown'}\n\nReady to manage your tasks!`,
+          } as TextContent],
+        };
+      }
+
+      // Parse provider if specified
+      const provider = args?.provider as 'google' | 'microsoft' | 'apple' | undefined;
+
+      // Start browser-based OAuth flow
+      let success = false;
+      if (provider) {
+        switch (provider) {
+          case 'google':
+            success = await authManager.signInWithGoogle();
+            break;
+          case 'microsoft':
+            success = await authManager.signInWithMicrosoft();
+            break;
+          case 'apple':
+            success = await authManager.signInWithApple();
+            break;
+        }
+      } else {
+        // Generic OAuth (user chooses provider in browser)
+        success = await authManager.signInWithOAuth();
+      }
 
       if (success) {
+        await this.backendClient.authenticate(); // Sync with backend client
         const info = authManager.getUserInfo();
         return {
           content: [{
@@ -885,7 +924,7 @@ All tasks have been scored and saved to your AiDD account.
         return {
           content: [{
             type: 'text',
-            text: '❌ Failed to connect to AiDD. Please try again.',
+            text: '❌ Failed to connect to AiDD. Authentication was cancelled or failed. Please try again.',
           } as TextContent],
         };
       }
