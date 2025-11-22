@@ -38,10 +38,11 @@ Simply connect via URL - no local installation required.
   - Personalized recommendations
 
 ### 🔐 Authentication
-- Browser-based OAuth (Google, Microsoft, Apple)
-- Email/password sign-in
-- Automatic token refresh
-- Secure cloud storage
+- **Browser-based OAuth** - Opens browser for seamless sign-in
+- **Multiple Providers** - Google, Microsoft, Apple Sign-In, or Email/Password
+- **Automatic Token Refresh** - Stay connected without re-authentication
+- **Secure Storage** - AES-256 encrypted credentials with auto-refresh
+- **Universal Access** - Same authentication across web, mobile, desktop
 
 ### 📱 Integrations
 - Google Tasks
@@ -65,7 +66,13 @@ That's it! Now use it:
 
 ```
 You: connect
-Claude: [opens browser for authentication]
+Claude: 🌐 Opening browser for authentication...
+[Browser opens - sign in with Google, Microsoft, Apple, or Email]
+[Browser shows: ✅ Authentication Successful!]
+Claude: ✅ Connected to AiDD
+📧 Email: user@example.com
+💎 Subscription: FREE
+Ready to manage your tasks!
 
 You: list my tasks
 Claude: [shows your AiDD tasks]
@@ -94,9 +101,12 @@ Your service will be live at: `https://aidd-mcp-connector-<hash>.run.app`
 ## Available Tools
 
 ### Authentication
-- `connect` - Sign in via browser OAuth
-- `disconnect` - Sign out
-- `status` - Check authentication status
+- `connect(provider?)` - Sign in via browser OAuth (optional: google, microsoft, apple)
+  - Opens browser for authentication
+  - Supports Google, Microsoft, Apple Sign-In, and Email/Password
+  - Tokens stored securely with auto-refresh
+- `disconnect` - Sign out and clear credentials
+- `status` - Check authentication status and subscription tier
 - `check_backend_health` - Verify backend connectivity
 
 ### Notes
@@ -191,13 +201,15 @@ Upgrade at: [https://aidd.app/pricing](https://aidd.app/pricing)
 
 ## Security & Privacy
 
-- ✅ OAuth 2.0 with PKCE flow
-- ✅ JWT tokens with auto-refresh
-- ✅ HTTPS/TLS for all communication
-- ✅ CORS locked to Claude domains
-- ✅ Data encrypted at rest & in transit
-- ✅ Rate limiting per subscription tier
-- ✅ No third-party data sharing
+- ✅ **Browser-based OAuth 2.0** - Secure authentication flow
+- ✅ **JWT Tokens** - Auto-refresh, 30-day expiry
+- ✅ **Encrypted Storage** - AES-256-CBC for credentials
+- ✅ **HTTPS/TLS** - All communication encrypted
+- ✅ **CORS Protection** - Locked to Claude domains
+- ✅ **Local Callback** - OAuth tokens received on localhost:8765
+- ✅ **Restrictive Permissions** - Credentials file (0600 owner-only)
+- ✅ **Rate Limiting** - Per subscription tier
+- ✅ **No Data Sharing** - Your data stays private
 
 Full Privacy Policy: [https://aidd.app/privacy](https://aidd.app/privacy)
 
