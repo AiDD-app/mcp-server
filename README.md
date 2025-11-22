@@ -1,293 +1,333 @@
 # @aidd-app/mcp
 
-Official AiDD MCP Server for Claude Desktop - Comprehensive ADHD-optimized productivity platform with AI-powered task management, action item extraction, Apple Notes integration, and multi-service synchronization.
+**Official AiDD MCP Web Connector** - ADHD-optimized productivity platform accessible from Claude web, mobile, and desktop.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Version](https://img.shields.io/badge/version-4.0.0-blue.svg)](https://github.com/aidd-app/mcp-server)
+
+## 🌐 Universal Access
+
+Works everywhere Claude works:
+- ✅ **Claude.ai** (desktop browsers)
+- ✅ **Claude mobile apps** (iOS/Android)
+- ✅ **Claude Desktop** (all platforms)
+
+Simply connect via URL - no local installation required.
 
 ## Features
 
 ### 📝 Notes Management
-- **List Notes**: Browse all notes from your AiDD account with pagination
-- **Read Notes**: Get detailed note content including metadata
-- **Create Notes**: Create new notes directly in your AiDD account
-- **Import from Apple Notes**: Import Apple Notes into your AiDD account
+- List, read, and create notes in your AiDD account
+- Full-text search and pagination
+- Categorization (work/personal) and tags
 
-### ✅ Action Items Management
-- **List Action Items**: View all extracted action items with filtering
-- **Read Action Items**: Get detailed information about specific action items
-- **AI Extraction**: Extract action items from notes using Gemini AI
-  - Extract from all notes at once
-  - Extract from a specific note
-  - Extract from user-provided text
+### ✅ Action Items (AI-Powered)
+- **AI Extraction**: Extract action items from notes or text using Google Gemini
+- List and read action items with priority/due dates
+- Confidence scoring for each extracted item
 
-### 🎯 Tasks Management (ADHD-Optimized)
-- **List Tasks**: View all tasks with flexible sorting (by score, due date)
-- **Read Tasks**: Get detailed task information including subtasks
-- **AI Conversion**: Convert action items to ADHD-optimized task breakdowns
-  - Automatic task decomposition into manageable steps
-  - Energy level estimation
+### 🎯 ADHD-Optimized Tasks
+- **AI Task Breakdown**: Convert action items into manageable subtasks
+  - Automatic time estimates
+  - Energy level requirements
   - Dependency tracking
-  - Time estimates
-- **AI Scoring**: Intelligent task prioritization using Gemini AI
-  - ADHD-optimized scoring algorithm
-  - Considers urgency, importance, energy, and context
-  - Automatic rescoring of all tasks
+  - Task type classification
+- **AI Prioritization**: Smart task scoring
+  - Urgency × Importance × Energy × ADHD compatibility
+  - Time-of-day optimization
+  - Personalized recommendations
 
-### 🤖 AI-Powered Intelligence
-- **Google Gemini Integration**: All AI processing powered by Gemini models
-  - `gemini-3-pro-preview` for complex scoring and prioritization
-  - `gemini-2.5-flash` for fast extraction and conversion
-- **Real-time Progress Tracking**: Server-sent events for live updates
-- **Async Job Processing**: Handle large datasets efficiently
+### 🔐 Authentication
+- Browser-based OAuth (Google, Microsoft, Apple)
+- Email/password sign-in
+- Automatic token refresh
+- Secure cloud storage
 
-### 🔐 OAuth Authentication
-- **Browser-Based Login**: Secure authentication through your browser
-- **Multiple Providers**: Google, Microsoft, Apple, and Email/Password
-- **Automatic Token Refresh**: Stay connected without re-authentication
-- **Encrypted Storage**: Secure credential management at `~/.aidd-mcp/auth-credentials.json`
-
-### 📱 Multi-Service Sync
+### 📱 Integrations
 - Google Tasks
 - Microsoft To Do
-- Trello
-- Todoist
-- Notion
-- TickTick
-- Evernote
+- Trello, Todoist, Notion
+- TickTick, Evernote
 
-### 🏥 Backend Health Monitoring
-- Real-time backend service status
-- Connection health checks
-- Subscription tier verification
+## Quick Start
 
-## Installation
+### Using Hosted Service (Recommended)
 
-### Easy Installation via Claude Desktop UI
+**Production URL**: `https://mcp.aidd.app/mcp`
 
-1. Open Claude Desktop
-2. Go to Settings → MCP Servers → Add Server
-3. Enter package name: `@aidd-app/mcp`
-4. Click Install
-5. Restart Claude Desktop
+1. Open [claude.ai](https://claude.ai) → Settings
+2. Navigate to "Connectors" or "MCP"
+3. Click "Add Connector"
+4. Enter URL: `https://mcp.aidd.app/mcp`
+5. Save
 
-### Manual Installation
+That's it! Now use it:
 
-Add the following to your `~/Library/Application Support/Claude/claude_desktop_config.json`:
+```
+You: connect
+Claude: [opens browser for authentication]
 
-```json
-{
-  "mcpServers": {
-    "AiDD": {
-      "command": "npx",
-      "args": ["@aidd-app/mcp"],
-      "env": {}
-    }
-  }
-}
+You: list my tasks
+Claude: [shows your AiDD tasks]
+
+You: score my tasks and tell me what to work on next
+Claude: [AI analyzes and prioritizes your tasks]
 ```
 
-## Usage
+### Self-Hosting on Google Cloud Run
 
-### First Time Setup
+**Prerequisites**:
+- Google Cloud account with billing enabled
+- `gcloud` CLI installed
 
-1. In Claude, type: `connect`
-2. Your browser will open for authentication
-3. Sign in with your AiDD account:
-   - Google Sign-In
-   - Microsoft Sign-In
-   - Apple Sign-In
-   - Email/Password
-4. Check your status: `status`
-
-### Available Tools
-
-#### Authentication & Status
-- `connect` - Sign in to your AiDD account via browser
-- `disconnect` - Sign out and remove credentials
-- `status` - Check connection, subscription, and token expiry
-- `check_backend_health` - Verify backend service status
-
-#### Notes Management
-- `list_notes` - List all notes with pagination
-  - Optional: `limit`, `offset`, `search` parameters
-- `read_note` - Read specific note by ID
-- `create_note` - Create new note with title and content
-  - Optional: `tags`, `category`, `priority`
-- `import_apple_notes` - Import Apple Notes into AiDD
-  - Optional: `folder` to import from specific folder
-
-#### Action Items Management
-- `list_action_items` - List all action items
-  - Optional: `limit`, `offset`, `status` filters
-- `read_action_item` - Read specific action item by ID
-- `extract_action_items` - Extract action items using AI
-  - From all notes: `extract_action_items`
-  - From specific note: `extract_action_items(noteId="abc123")`
-  - From text: `extract_action_items(text="Your content here")`
-
-#### Tasks Management
-- `list_tasks` - List all tasks
-  - Optional: `sortBy` ("score" or "dueDate"), `limit`, `offset`
-- `read_task` - Read specific task by ID
-- `convert_to_tasks` - Convert action items to ADHD-optimized tasks
-  - Convert all: `convert_to_tasks`
-  - Convert specific: `convert_to_tasks(actionItemIds=["id1", "id2"])`
-- `score_tasks` - AI-powered task prioritization
-  - Rescores all tasks using Gemini AI
-  - Returns updated scores and rationale
-
-## Architecture
-
-### Backend Infrastructure
-- **Platform**: Google Cloud Run (Node.js 20)
-- **Database**: Google Cloud Firestore
-- **Session Storage**: Google Cloud Memorystore (Redis)
-- **AI Models**: Google Gemini (`gemini-3-pro-preview`, `gemini-2.5-flash`)
-- **Authentication**: OAuth 2.0 with JWT tokens
-- **API Endpoint**: `https://aidd-backend-prod-739193356129.us-central1.run.app`
-
-### Data Flow
-1. **Authentication**: Browser OAuth → Backend JWT → Secure storage
-2. **CRUD Operations**: MCP Tool → Backend API → Firestore
-3. **AI Processing**: Tool Request → Async Job → SSE Updates → Completion
-4. **Progress Tracking**: Real-time updates via Server-Sent Events
-
-## Requirements
-
-- macOS (for Apple Notes import feature)
-- Node.js 18+
-- Claude Desktop
-- AiDD account (free or premium)
-
-## Subscription Tiers
-
-- **FREE** - Basic features with rate limits
-  - Notes: 100/day
-  - Action Items: 50/day
-  - AI Extraction: 20/day
-  - AI Scoring: 10/day
-
-- **PREMIUM** - Enhanced AI features and faster processing
-  - Notes: 1,000/day
-  - Action Items: 500/day
-  - AI Extraction: 100/day
-  - AI Scoring: 50/day
-
-- **PRO** - Unlimited processing and priority support
-  - All features unlimited
-  - Priority queue for AI processing
-  - Dedicated support
-
-## Security
-
-- OAuth 2.0 authentication with PKCE flow
-- JWT tokens with automatic refresh
-- Encrypted credential storage locally
-- No passwords stored in plain text
-- HTTPS/TLS for all API communication
-- Session-based security with Redis
-- Rate limiting per subscription tier
-
-## API Resources
-
-The MCP server exposes the following resources that Claude can access:
-
-- `aidd://notes` - All notes from your account (JSON)
-- `aidd://action-items` - All action items (JSON)
-- `aidd://tasks` - All ADHD-optimized tasks (JSON)
-- `aidd://backend/health` - Backend service health status (JSON)
-
-## Development
-
-### Build from Source
+**One-Command Deploy**:
 
 ```bash
 git clone https://github.com/aidd-app/mcp-server.git
 cd mcp-server
+chmod +x deploy-cloud-run.sh
+./deploy-cloud-run.sh
+```
+
+Your service will be live at: `https://aidd-mcp-connector-<hash>.run.app`
+
+## Available Tools
+
+### Authentication
+- `connect` - Sign in via browser OAuth
+- `disconnect` - Sign out
+- `status` - Check authentication status
+- `check_backend_health` - Verify backend connectivity
+
+### Notes
+- `list_notes` - Browse notes (sortBy: createdAt/updatedAt/title)
+- `read_note(noteId)` - Read specific note
+- `create_note(title, content, tags?, category?)` - Create new note
+
+### Action Items
+- `list_action_items` - Browse action items
+- `read_action_item(id)` - Read details
+- `extract_action_items(source, noteIds?, text?)` - AI extraction
+  - From notes: `source="notes", noteIds=["id1", "id2"]`
+  - From text: `source="text", text="Your content..."`
+
+### Tasks
+- `list_tasks` - Browse tasks (sortBy: score/dueDate/createdAt)
+- `read_task(taskId)` - Read task details
+- `convert_to_tasks(actionItemIds?)` - AI task breakdown
+- `score_tasks(considerCurrentEnergy?, timeOfDay?)` - AI prioritization
+
+## Architecture
+
+```
+┌─────────────────┐
+│   Claude        │ (web/mobile/desktop)
+│   User          │
+└────────┬────────┘
+         │ HTTPS/SSE
+         ↓
+┌─────────────────┐
+│   AiDD MCP      │ Cloud Run (auto-scale 1-10)
+│   Web Connector │ Node.js 20, Express, CORS
+└────────┬────────┘
+         │ REST API
+         ↓
+┌─────────────────┐
+│   AiDD Backend  │ Cloud Run (production)
+│   - Firestore   │ - Notes, Tasks, Action Items
+│   - Redis       │ - Sessions, Cache
+│   - Gemini AI  │ - Extraction, Conversion, Scoring
+└─────────────────┘
+```
+
+### Tech Stack
+- **Runtime**: Node.js 20
+- **Framework**: Express.js
+- **Protocol**: MCP over HTTP/SSE
+- **Transport**: Server-Sent Events
+- **Auth**: OAuth 2.0 + JWT
+- **AI**: Google Gemini (pro & flash)
+
+## Development
+
+### Local Testing
+
+```bash
 npm install
+npm run dev
+```
+
+Server runs on `http://localhost:8080`
+
+**Test endpoints**:
+```bash
+curl http://localhost:8080/health
+curl http://localhost:8080/
+```
+
+### Docker Build
+
+```bash
+docker build -t aidd-mcp-connector .
+docker run -p 8080:8080 aidd-mcp-connector
+```
+
+### Production Build
+
+```bash
 npm run build
 npm start
 ```
 
-### Testing
+## Subscription Tiers
+
+| Tier | Notes/day | Action Items/day | AI Extraction/day | AI Scoring/day |
+|------|-----------|------------------|-------------------|----------------|
+| **FREE** | 100 | 50 | 20 | 10 |
+| **PREMIUM** | 1,000 | 500 | 100 | 50 |
+| **PRO** | Unlimited | Unlimited | Unlimited | Unlimited |
+
+Upgrade at: [https://aidd.app/pricing](https://aidd.app/pricing)
+
+## Security & Privacy
+
+- ✅ OAuth 2.0 with PKCE flow
+- ✅ JWT tokens with auto-refresh
+- ✅ HTTPS/TLS for all communication
+- ✅ CORS locked to Claude domains
+- ✅ Data encrypted at rest & in transit
+- ✅ Rate limiting per subscription tier
+- ✅ No third-party data sharing
+
+Full Privacy Policy: [https://aidd.app/privacy](https://aidd.app/privacy)
+
+## Production Deployment
+
+### Cloud Run Best Practices
+
+```yaml
+Service: aidd-mcp-connector
+Region: us-central1
+Memory: 1Gi
+CPU: 1 vCPU
+Min instances: 1    # Warm instance for low latency
+Max instances: 10   # Auto-scale under load
+Timeout: 300s       # 5min for AI operations
+Concurrency: 80     # Requests per container
+```
+
+### Environment Variables
 
 ```bash
-npm test
+NODE_ENV=production
+PORT=8080
 ```
+
+### Custom Domain
+
+```bash
+gcloud run domain-mappings create \
+  --service aidd-mcp-connector \
+  --domain mcp.yourdomain.com \
+  --region us-central1
+```
+
+### Monitoring
+
+View metrics in [GCP Console](https://console.cloud.google.com/run):
+- Request count & latency
+- Error rates
+- Container instances
+- Memory/CPU usage
 
 ## Troubleshooting
 
-### Connection Issues
-- Run `check_backend_health` to verify backend status
-- Check `status` to see if your auth token is expired
-- Try `disconnect` followed by `connect` to refresh authentication
+### "Connection Failed"
+1. Check health: `curl https://your-url/health`
+2. Verify CORS: claude.ai must be in allowed origins
+3. Check logs: `gcloud run services logs read --limit 50`
 
-### Apple Notes Import
-- Ensure you have granted Apple Notes permissions
-- Check System Settings → Privacy & Security → Automation
-- AiDD MCP must have permission to access Apple Notes
+### "Authentication Error"
+1. Use `connect` tool in Claude
+2. Allow popup windows
+3. Try incognito mode (clear cookies)
 
-### AI Processing Timeouts
-- Large batches may take several minutes
-- Progress updates are sent via Server-Sent Events
-- Check your subscription tier for rate limits
+### "Rate Limit Exceeded"
+- Upgrade subscription tier
+- Check quota: `status` tool shows limits
+
+## Why Web Connector?
+
+**vs Desktop Extension:**
+- ❌ Desktop: macOS/Windows/Linux only, local install required
+- ✅ Web: Works everywhere (mobile, web, desktop)
+
+**vs Separate MCPs:**
+- You can combine AiDD with other MCP connectors
+- Example: Use with [Apple Notes MCP](https://github.com/gongrzhe/claude-apple-notes-mcp) for macOS users
+- Claude orchestrates between multiple MCPs automatically
+
+## Combining with Apple Notes MCP
+
+**For macOS users who want Apple Notes integration:**
+
+1. Install AiDD MCP (web connector - this repo)
+2. Install [Apple Notes MCP](https://github.com/gongrzhe/claude-apple-notes-mcp) (desktop-only)
+
+Then Claude can orchestrate:
+
+```
+You: Import my Apple Notes into AiDD and prioritize them
+
+Claude will:
+1. Use Apple Notes MCP to read your notes (macOS)
+2. Use AiDD MCP to save them to your account (web)
+3. Use AiDD MCP's AI to extract action items (web)
+4. Use AiDD MCP's AI to prioritize tasks (web)
+```
+
+This modular approach keeps AiDD cross-platform while allowing optional platform-specific features.
 
 ## Support
 
-- Website: [https://aidd.app](https://aidd.app)
-- Email: support@aidd.app
-- Issues: [GitHub Issues](https://github.com/aidd-app/mcp-server/issues)
-- Documentation: [https://docs.aidd.app](https://docs.aidd.app)
+- 🌐 Website: [aidd.app](https://aidd.app)
+- 📧 Email: support@aidd.app
+- 🐛 Issues: [GitHub](https://github.com/aidd-app/mcp-server/issues)
+- 📚 Docs: [docs.aidd.app](https://docs.aidd.app)
+
+## Contributing
+
+Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## License
 
 MIT © AiDD Team
 
-## Privacy
-
-Your data privacy is our top priority.
-
-### Data Processing
-- Notes and tasks are stored securely in Google Cloud Firestore
-- Apple Notes content is only accessed when you explicitly import
-- AI processing happens on secure backend servers with encryption in transit
-- Authentication tokens stored locally at `~/.aidd-mcp/auth-credentials.json`
-- No data is shared with third parties except as outlined in our Privacy Policy
-- All data encrypted at rest and in transit
-
-### Data Retention
-- Notes, action items, and tasks persist in your account
-- Session data expires after 30 days of inactivity
-- You can delete your data anytime via the app or by contacting support
-
-For detailed information, please review our [Privacy Policy](https://www.aidd.app/privacy).
-
-## Contributing
-
-We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
-
 ## Changelog
 
-### Version 3.0.0 (Latest)
-- **Major Architecture Change**: Transitioned from workflow-based to CRUD-based operations
-- **New Tools**: Added 11 comprehensive tools for notes, action items, and tasks management
-- **Direct Backend Integration**: All operations now directly interact with AiDD backend API
-- **Enhanced AI Features**: Separate tools for extraction, conversion, and scoring
-- **Improved Performance**: Async processing with real-time progress updates
-- **Resource Access**: Exposed 4 MCP resources for data access
+### v4.0.0 (2025-01-22) - Web Connector Edition
+- 🌐 **Breaking**: Transitioned from stdio to HTTP/SSE transport
+- 📱 **New**: Universal access (web, mobile, desktop)
+- ☁️ **New**: Cloud Run deployment with auto-scaling
+- 🔒 **Enhanced**: CORS for Claude domains
+- ❌ **Removed**: Apple Notes integration (use separate MCP)
+- ⚡ **Improved**: Cloud-native observability
 
-### Version 2.0.0
-- Browser-based OAuth authentication
-- Multi-provider sign-in support
-- Encrypted credential storage
-- Automatic token refresh
+### v3.0.0 (2025-01-15)
+- CRUD-based architecture
+- 11 comprehensive tools
+- Direct backend integration
+- Enhanced AI features
 
-### Version 1.0.0
+### v2.0.0 (2025-01-10)
+- Browser-based OAuth
+- Multi-provider sign-in
+
+### v1.0.0 (2025-01-05)
 - Initial release
-- Apple Notes integration
-- Basic AI processing
-- Task synchronization
 
 ---
 
-Made with ❤️ by the AiDD Team for the ADHD community
+**Made with ❤️ by the AiDD Team for the ADHD community**
 
-**Transform your notes into actionable tasks, optimized for how your brain works.**
+*Transform your notes into actionable tasks, from anywhere, on any device.*
