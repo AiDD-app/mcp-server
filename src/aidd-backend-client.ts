@@ -180,13 +180,58 @@ export class AiDDBackendClient extends EventEmitter {
   }
 
   /**
-   * Extract action items from notes using AiDD backend AI
+   * Extract action items from notes using AiDD backend AI with batch processing
    */
   async extractActionItems(notes: Array<{ id: string; title: string; content: string }>): Promise<ActionItem[]> {
     if (!this.deviceToken) {
       await this.authenticate();
     }
 
+    // Batch processing configuration
+    const BATCH_SIZE = 3; // Process 3 notes at a time to avoid rate limits
+    const BATCH_DELAY_MS = 2000; // 2 second delay between batches
+
+    // If small number of notes, process directly
+    if (notes.length <= BATCH_SIZE) {
+      return this.extractBatch(notes);
+    }
+
+    // Split into batches and process sequentially
+    const allActionItems: ActionItem[] = [];
+    const batches: Array<{ id: string; title: string; content: string }>[] = [];
+
+    for (let i = 0; i < notes.length; i += BATCH_SIZE) {
+      batches.push(notes.slice(i, i + BATCH_SIZE));
+    }
+
+    console.log(`[MCP] Extracting action items from ${notes.length} notes in ${batches.length} batches`);
+
+    for (let i = 0; i < batches.length; i++) {
+      const batch = batches[i];
+      console.log(`[MCP] Processing extraction batch ${i + 1}/${batches.length} (${batch.length} notes)`);
+
+      try {
+        const actionItems = await this.extractBatch(batch);
+        allActionItems.push(...actionItems);
+
+        // Add delay between batches (except for last batch)
+        if (i < batches.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+        }
+      } catch (error) {
+        console.error(`[MCP] Extraction batch ${i + 1} failed:`, error);
+        // Continue with remaining batches even if one fails
+      }
+    }
+
+    console.log(`[MCP] Extraction batch processing complete. Total action items: ${allActionItems.length}`);
+    return allActionItems;
+  }
+
+  /**
+   * Extract action items from a single batch of notes
+   */
+  private async extractBatch(notes: Array<{ id: string; title: string; content: string }>): Promise<ActionItem[]> {
     try {
       // Generate deviceId for this request (use userId if available, otherwise generate one)
       const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
@@ -248,21 +293,42 @@ export class AiDDBackendClient extends EventEmitter {
 
         const waitResult = await waitResponse.json() as {
           status?: string;
-          result?: { actionItems?: ActionItem[] };
+          result?: {
+            actionItems?: ActionItem[];
+            extractions?: Array<{ noteId: string; actionItems: ActionItem[] }>;
+            totalActionItems?: number;
+          };
           actionItems?: ActionItem[];
+          extractions?: Array<{ noteId: string; actionItems: ActionItem[] }>;
         };
 
-        // Handle different response formats
-        if (waitResult.actionItems) {
+        console.log('[MCP] Extraction wait result:', JSON.stringify(waitResult, null, 2).substring(0, 500));
+
+        // Handle different response formats from backend
+        // 1. Direct actionItems array
+        if (waitResult.actionItems && waitResult.actionItems.length > 0) {
           return waitResult.actionItems;
         }
-        if (waitResult.result?.actionItems) {
+        if (waitResult.result?.actionItems && waitResult.result.actionItems.length > 0) {
           return waitResult.result.actionItems;
+        }
+
+        // 2. Backend returns extractions array: [{noteId, actionItems: [...]}]
+        // Flatten all action items from all extractions
+        if (waitResult.extractions && waitResult.extractions.length > 0) {
+          const allItems = waitResult.extractions.flatMap(e => e.actionItems || []);
+          console.log(`[MCP] Extracted ${allItems.length} action items from ${waitResult.extractions.length} extractions`);
+          return allItems;
+        }
+        if (waitResult.result?.extractions && waitResult.result.extractions.length > 0) {
+          const allItems = waitResult.result.extractions.flatMap(e => e.actionItems || []);
+          console.log(`[MCP] Extracted ${allItems.length} action items from ${waitResult.result.extractions.length} extractions`);
+          return allItems;
         }
 
         // If job completed but no action items, return empty
         if (waitResult.status === 'completed') {
-          console.warn('Job completed but no actionItems found in result');
+          console.warn('Job completed but no actionItems found in result. Full result:', JSON.stringify(waitResult));
           return [];
         }
 
@@ -277,13 +343,58 @@ export class AiDDBackendClient extends EventEmitter {
   }
 
   /**
-   * Convert action items to ADHD-optimized tasks
+   * Convert action items to ADHD-optimized tasks with batch processing
    */
   async convertToTasks(actionItems: ActionItem[]): Promise<ConvertedTask[]> {
     if (!this.deviceToken) {
       await this.authenticate();
     }
 
+    // Batch processing configuration
+    const BATCH_SIZE = 3; // Process 3 action items at a time to avoid rate limits
+    const BATCH_DELAY_MS = 2000; // 2 second delay between batches
+
+    // If small number of items, process directly
+    if (actionItems.length <= BATCH_SIZE) {
+      return this.convertBatch(actionItems);
+    }
+
+    // Split into batches and process sequentially
+    const allTasks: ConvertedTask[] = [];
+    const batches: ActionItem[][] = [];
+
+    for (let i = 0; i < actionItems.length; i += BATCH_SIZE) {
+      batches.push(actionItems.slice(i, i + BATCH_SIZE));
+    }
+
+    console.log(`[MCP] Processing ${actionItems.length} action items in ${batches.length} batches`);
+
+    for (let i = 0; i < batches.length; i++) {
+      const batch = batches[i];
+      console.log(`[MCP] Processing batch ${i + 1}/${batches.length} (${batch.length} items)`);
+
+      try {
+        const tasks = await this.convertBatch(batch);
+        allTasks.push(...tasks);
+
+        // Add delay between batches (except for last batch)
+        if (i < batches.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+        }
+      } catch (error) {
+        console.error(`[MCP] Batch ${i + 1} failed:`, error);
+        // Continue with remaining batches even if one fails
+      }
+    }
+
+    console.log(`[MCP] Batch processing complete. Total tasks: ${allTasks.length}`);
+    return allTasks;
+  }
+
+  /**
+   * Convert a single batch of action items
+   */
+  private async convertBatch(actionItems: ActionItem[]): Promise<ConvertedTask[]> {
     try {
       // Generate deviceId for this request (use userId if available, otherwise generate one)
       const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
@@ -337,23 +448,52 @@ export class AiDDBackendClient extends EventEmitter {
           throw new Error(`Job wait failed: ${waitResponse.statusText}`);
         }
 
+        // Backend returns wrapped tasks: { tasks: [{originalId, converted, task: {...}}] }
+        interface WrappedTask {
+          originalId: string;
+          converted: boolean;
+          task: ConvertedTask;
+        }
+
         const waitResult = await waitResponse.json() as {
           status?: string;
-          result?: { tasks?: ConvertedTask[] };
-          tasks?: ConvertedTask[];
+          result?: {
+            tasks?: Array<WrappedTask | ConvertedTask>;
+            totalProcessed?: number;
+          };
+          tasks?: Array<WrappedTask | ConvertedTask>;
+        };
+
+        console.log('[MCP] Conversion wait result:', JSON.stringify(waitResult, null, 2).substring(0, 500));
+
+        // Helper to unwrap tasks - backend sends wrapped format: {originalId, converted, task: {...}}
+        const unwrapTasks = (tasks: Array<WrappedTask | ConvertedTask>): ConvertedTask[] => {
+          return tasks.map(t => {
+            // Check if it's a wrapped task (has 'task' property with the actual task)
+            if ('task' in t && t.task && typeof t.task === 'object') {
+              console.log(`[MCP] Unwrapping task: ${(t.task as ConvertedTask).title}`);
+              return t.task as ConvertedTask;
+            }
+            // Already a flat task
+            return t as ConvertedTask;
+          });
         };
 
         // Handle different response formats
-        if (waitResult.tasks) {
-          return waitResult.tasks;
+        if (waitResult.tasks && waitResult.tasks.length > 0) {
+          const unwrapped = unwrapTasks(waitResult.tasks);
+          console.log(`[MCP] Converted ${unwrapped.length} tasks`);
+          return unwrapped;
         }
-        if (waitResult.result?.tasks) {
-          return waitResult.result.tasks;
+        if (waitResult.result?.tasks && waitResult.result.tasks.length > 0) {
+          const unwrapped = unwrapTasks(waitResult.result.tasks);
+          console.log(`[MCP] Converted ${unwrapped.length} tasks from result`);
+          return unwrapped;
         }
 
         // If job completed but no tasks, return empty
         if (waitResult.status === 'completed') {
-          console.warn('Job completed but no tasks found in result');
+          console.warn('Job completed but no tasks found in result. Full result:', JSON.stringify(waitResult));
           return [];
         }
 
@@ -379,6 +519,25 @@ export class AiDDBackendClient extends EventEmitter {
       // Generate deviceId for this request (use userId if available, otherwise generate one)
       const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
 
+      // Build task array with stable IDs, tracking the mapping for score lookup later
+      const taskIdMap = new Map<string, any>(); // Maps sent taskId -> original task
+      const tasksToScore = tasks.map(task => {
+        const taskId = (task as any).id || crypto.randomUUID();
+        taskIdMap.set(taskId, task);
+        return {
+          id: taskId,
+          title: task.title,
+          description: task.description,
+          dueDate: task.dueDate,
+          estimatedTime: task.estimatedTime,
+          energyRequired: task.energyRequired,
+          tags: task.tags,
+          taskType: task.taskType,
+        };
+      });
+
+      console.log('[MCP] Scoring tasks:', tasksToScore.map(t => ({ id: t.id, title: t.title })));
+
       // Step 1: Create the scoring job
       const response = await fetch(`${this.baseUrl}/api/ai/score-tasks`, {
         method: 'POST',
@@ -388,17 +547,8 @@ export class AiDDBackendClient extends EventEmitter {
           'X-Device-ID': deviceId,
         },
         body: JSON.stringify({
-          deviceId: deviceId, // Also include in body as fallback
-          tasks: tasks.map(task => ({
-            id: (task as any).id || crypto.randomUUID(), // Use existing task ID if available, otherwise generate new one
-            title: task.title,
-            description: task.description,
-            dueDate: task.dueDate,
-            estimatedTime: task.estimatedTime,
-            energyRequired: task.energyRequired,
-            tags: task.tags,
-            taskType: task.taskType,
-          })),
+          deviceId: deviceId,
+          tasks: tasksToScore,
           scoringFactors: {
             considerADHD: true,
             timeOfDay: new Date().getHours(),
@@ -461,19 +611,16 @@ export class AiDDBackendClient extends EventEmitter {
           const scores = waitResult.result.scores;
           const scoredTasks: ScoredTask[] = [];
 
-          // Create a map of original tasks for lookup
-          const taskMap = new Map<string, any>();
-          tasks.forEach(task => {
-            const taskId = (task as any).id;
-            if (taskId) {
-              taskMap.set(taskId, task);
-            }
-          });
+          console.log('[MCP] Received scores for task IDs:', Object.keys(scores));
+          console.log('[MCP] taskIdMap has IDs:', Array.from(taskIdMap.keys()));
 
           // Convert scores object to ScoredTask array
+          // Use taskIdMap we created earlier to map back to original tasks
           for (const [taskId, scoreData] of Object.entries(scores)) {
-            const originalTask = taskMap.get(taskId);
+            const originalTask = taskIdMap.get(taskId);
             const overallScore = Math.round((scoreData.urgency + scoreData.impact + scoreData.relevance) / 3);
+
+            console.log(`[MCP] Task ${taskId}: urgency=${scoreData.urgency}, impact=${scoreData.impact}, relevance=${scoreData.relevance}, overall=${overallScore}`);
 
             scoredTasks.push({
               id: taskId,

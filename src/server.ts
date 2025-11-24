@@ -248,10 +248,23 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Icon endpoint
+// Icon endpoint - serve optimized 128x128 PNG
 app.get('/icon.png', (req, res) => {
-  // Serve the icon file
+  res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
   res.sendFile('icon.png', { root: '.' });
+});
+
+// Smaller 64x64 icon for Claude
+app.get('/icon-64.png', (req, res) => {
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.sendFile('icon-64.png', { root: '.' });
+});
+
+// Favicon endpoint (Claude may look for this)
+app.get('/favicon.ico', (req, res) => {
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.setHeader('Content-Type', 'image/png'); // Serve PNG as favicon
+  res.sendFile('favicon-32.png', { root: '.' });
 });
 
 // Legacy icon endpoint (redirect to new path)

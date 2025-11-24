@@ -115,10 +115,6 @@ export class AiDDMCPServer {
           case 'score_tasks':
             return await this.handleScoreTasks(args);
 
-          // Authentication Tools
-          case 'status':
-            return await this.handleStatus();
-
           default:
             throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
         }
@@ -381,18 +377,6 @@ export class AiDDMCPServer {
             },
           },
         },
-      },
-
-      // =============================================================================
-      // AUTHENTICATION TOOLS
-      // =============================================================================
-      {
-        name: 'status',
-        description: 'Check authentication status and account information',
-        annotations: {
-          readOnlyHint: true
-        },
-        inputSchema: { type: 'object', properties: {} },
       },
     ];
   }
@@ -881,41 +865,6 @@ All tasks have been scored and saved to your AiDD account.
         content: [{
           type: 'text',
           text: `❌ Error scoring tasks: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        } as TextContent],
-      };
-    }
-  }
-
-  // =============================================================================
-  // AUTHENTICATION HANDLERS
-  // =============================================================================
-
-  private async handleStatus() {
-    try {
-      const authManager = (this.backendClient as any).authManager;
-      const isSignedIn = authManager.isSignedIn();
-
-      if (isSignedIn) {
-        const info = authManager.getUserInfo();
-        return {
-          content: [{
-            type: 'text',
-            text: `✅ Connected to AiDD\n\n📧 Email: ${info.email || 'Unknown'}\n💎 Subscription: ${info.subscription || 'FREE'}\n🔑 User ID: ${info.userId || 'Unknown'}\n\nReady to process your tasks!`,
-          } as TextContent],
-        };
-      } else {
-        return {
-          content: [{
-            type: 'text',
-            text: '❌ Not connected to AiDD\n\nUse the connect tool to sign in.',
-          } as TextContent],
-        };
-      }
-    } catch (error) {
-      return {
-        content: [{
-          type: 'text',
-          text: `❌ Error checking status: ${error instanceof Error ? error.message : 'Unknown error'}`,
         } as TextContent],
       };
     }

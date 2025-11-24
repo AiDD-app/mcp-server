@@ -30,8 +30,10 @@ RUN npm ci --production
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist
 
-# Copy icon file
+# Copy icon files (multiple sizes for different use cases)
 COPY icon.png ./
+COPY icon-64.png ./
+COPY favicon-32.png ./
 
 # Set environment
 ENV NODE_ENV=production
