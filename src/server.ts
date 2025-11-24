@@ -2,7 +2,7 @@
 import express from 'express';
 import cors from 'cors';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { AiDDMCPServer } from './aidd-mcp-server.js';
 
 const app = express();
@@ -22,6 +22,7 @@ app.use(cors({
 }));
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true })); // Support form-encoded OAuth requests
 
 // ============================================================================
 // OAUTH 2.0 DISCOVERY ENDPOINTS (for Claude.ai integration)
@@ -120,7 +121,7 @@ app.get('/oauth/authorize', (req, res) => {
   };
   const encodedState = Buffer.from(JSON.stringify(stateData)).toString('base64url');
 
-  backendAuthUrl.searchParams.append('client_id', 'mcp-web-connector');  // Use a fixed client_id for backend
+  backendAuthUrl.searchParams.append('client_id', 'aidd-mcp-client');  // Use the client_id that backend expects
   backendAuthUrl.searchParams.append('redirect_uri', `${BASE_URL}/oauth/callback`);
   backendAuthUrl.searchParams.append('state', encodedState);
   backendAuthUrl.searchParams.append('response_type', 'code');
@@ -163,49 +164,64 @@ app.post('/oauth/token', async (req, res) => {
 
   try {
     if (grant_type === 'authorization_code') {
-      // Exchange code for token via backend
+      // Exchange code for token via backend OAuth endpoint
       const response = await fetch(
-        'https://aidd-backend-prod-739193356129.us-central1.run.app/api/auth/exchange-code',
+        'https://aidd-backend-prod-739193356129.us-central1.run.app/oauth/token',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code, redirect_uri: `${BASE_URL}/oauth/callback`, code_verifier }),
+          body: JSON.stringify({
+            grant_type: 'authorization_code',
+            code,
+            client_id: 'aidd-mcp-client',  // Backend expects this specific client_id
+            redirect_uri: `${BASE_URL}/oauth/callback`,
+            code_verifier
+          }),
         }
       );
 
       if (!response.ok) {
-        console.error('❌ Token exchange failed:', response.status);
-        return res.status(400).json({ error: 'invalid_grant' });
+        const errorData = await response.json() as any;
+        console.error('❌ Token exchange failed:', response.status, errorData);
+        // Pass through the backend's actual error
+        return res.status(400).json(errorData || { error: 'invalid_grant' });
       }
 
       const data = await response.json() as any;
       console.log('✅ Token exchange successful');
 
       res.json({
-        access_token: data.accessToken,
-        refresh_token: data.refreshToken,
+        access_token: data.access_token,
+        refresh_token: data.refresh_token,
         token_type: 'Bearer',
         expires_in: 2592000, // 30 days
         scope: 'profile email tasks notes action_items',
       });
     } else if (grant_type === 'refresh_token') {
-      // Refresh token via backend
+      // Refresh token via backend OAuth endpoint
       const response = await fetch(
-        'https://aidd-backend-prod-739193356129.us-central1.run.app/api/auth/refresh',
+        'https://aidd-backend-prod-739193356129.us-central1.run.app/oauth/token',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refreshToken: refresh_token }),
+          body: JSON.stringify({
+            grant_type: 'refresh_token',
+            refresh_token,
+            client_id: 'aidd-mcp-client'  // Backend expects this specific client_id
+          }),
         }
       );
 
       if (!response.ok) {
-        return res.status(400).json({ error: 'invalid_grant' });
+        const errorData = await response.json() as any;
+        console.error('❌ Refresh token failed:', response.status, errorData);
+        // Pass through the backend's actual error
+        return res.status(400).json(errorData || { error: 'invalid_grant' });
       }
 
       const data = await response.json() as any;
       res.json({
-        access_token: data.accessToken,
+        access_token: data.access_token,
         token_type: 'Bearer',
         expires_in: 2592000,
       });
@@ -233,9 +249,14 @@ app.get('/health', (req, res) => {
 });
 
 // Icon endpoint
+app.get('/icon.png', (req, res) => {
+  // Serve the icon file
+  res.sendFile('icon.png', { root: '.' });
+});
+
+// Legacy icon endpoint (redirect to new path)
 app.get('/icon', (req, res) => {
-  // Redirect to AiDD logo
-  res.redirect('https://aidd.app/logo.png');
+  res.redirect('/icon.png');
 });
 
 // Root endpoint - HEAD support for protocol discovery
@@ -253,11 +274,11 @@ app.get('/', (req, res) => {
     name: 'AiDD MCP Web Connector',
     version: '4.0.0',
     description: 'ADHD-optimized productivity platform with AI-powered task management',
-    icon: `${BASE_URL}/icon`,
+    icon: `${BASE_URL}/icon.png`,
     endpoints: {
       health: '/health',
       mcp: '/mcp (POST with SSE)',
-      icon: '/icon',
+      icon: '/icon.png',
       oauth: {
         discovery: '/.well-known/oauth-authorization-server',
         register: '/register (POST)',
@@ -293,7 +314,7 @@ app.get('/mcp', (req, res) => {
     protocolVersion: '2024-11-05',
     transport: 'sse',
     description: 'ADHD-optimized productivity platform with AI-powered task management',
-    icon: 'https://aidd.app/logo.png',
+    icon: `${BASE_URL}/icon.png`,
     capabilities: [
       'notes',
       'action-items',
@@ -311,9 +332,11 @@ app.get('/mcp', (req, res) => {
   });
 });
 
-// MCP SSE endpoint
+// MCP Streamable HTTP endpoint
 app.post('/mcp', async (req, res) => {
   console.log('📡 New MCP connection request');
+  console.log('📋 Request method:', req.body?.method);
+  console.log('📋 Request ID:', req.body?.id);
 
   // Extract OAuth token from Authorization header
   const authHeader = req.headers.authorization;
@@ -336,29 +359,67 @@ app.post('/mcp', async (req, res) => {
     return;
   }
 
-  // Set up SSE headers
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-MCP-Version', '2024-11-05');
-  res.setHeader('X-MCP-Transport', 'sse');
+  try {
+    // Create MCP server instance with OAuth token
+    console.log('📦 Creating MCP server instance...');
+    const mcpServer = new AiDDMCPServer(accessToken);
+    console.log('✅ MCP server instance created');
 
-  // Create MCP server instance with OAuth token
-  const mcpServer = new AiDDMCPServer(accessToken);
+    // Create Streamable HTTP transport (stateless mode for Cloud Run)
+    console.log('🔌 Creating Streamable HTTP transport...');
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined, // Stateless mode for Cloud Run
+      enableJsonResponse: true,      // Support both JSON and SSE responses
+    });
+    console.log('✅ Streamable HTTP transport created');
 
-  // Create SSE transport
-  const transport = new SSEServerTransport('/mcp', res);
+    // Connect server to transport
+    console.log('🔗 Connecting MCP server to transport...');
+    await mcpServer.connect(transport);
+    console.log('✅ MCP server connected');
 
-  // Connect server to transport
-  await mcpServer.connect(transport);
+    // Handle the request using StreamableHTTPServerTransport
+    console.log('📨 Processing MCP request via transport.handleRequest()...');
+    await transport.handleRequest(req, res, req.body);
+    console.log('✅ MCP request processed successfully');
 
-  console.log('✅ MCP server connected via SSE');
+    // Handle client disconnect
+    req.on('close', () => {
+      console.log('🔌 Client disconnected');
+      try {
+        transport.close();
+        mcpServer.close();
+      } catch (error) {
+        console.error('❌ Error closing MCP server:', error);
+      }
+    });
 
-  // Handle client disconnect
-  req.on('close', () => {
-    console.log('🔌 Client disconnected');
-    mcpServer.close();
-  });
+    // Handle server errors
+    req.on('error', (error) => {
+      console.error('❌ Request error:', error);
+      try {
+        transport.close();
+        mcpServer.close();
+      } catch (err) {
+        console.error('❌ Error closing MCP server after request error:', err);
+      }
+    });
+  } catch (error) {
+    console.error('❌ MCP error:', error);
+    console.error('❌ Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+
+    // Close the response if not already sent
+    if (!res.headersSent) {
+      res.status(500).json({
+        jsonrpc: '2.0',
+        error: {
+          code: -32603,
+          message: error instanceof Error ? error.message : 'Internal server error',
+        },
+        id: req.body?.id,
+      });
+    }
+  }
 });
 
 // Error handling middleware

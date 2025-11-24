@@ -16,6 +16,5 @@ test-*.js
 *.sh
 .npmignore
 AiDD.mcpb
-icon.png
 claude_desktop_config_example.json
 claude-config-example.json

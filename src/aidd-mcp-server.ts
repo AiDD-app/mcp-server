@@ -21,11 +21,18 @@ export class AiDDMCPServer {
 
   constructor(oauthToken?: string) {
     this.oauthToken = oauthToken;
+    console.log(`🔑 Using OAuth token from web connector: ${oauthToken ? 'present' : 'missing'}`);
+
+    const BASE_URL = process.env.BASE_URL || 'https://mcp.aidd.app';
 
     this.server = new Server(
       {
         name: 'AiDD',
         version: '4.0.0',
+        icons: [{
+          src: `${BASE_URL}/icon.png`,
+          mimeType: 'image/png'
+        }],
       },
       {
         capabilities: {
@@ -34,11 +41,16 @@ export class AiDDMCPServer {
         },
       }
     );
+    console.log('✅ MCP SDK Server instance created with capabilities and icon');
 
     this.backendClient = new AiDDBackendClient(oauthToken);
+    console.log('✅ Backend client initialized');
 
     this.setupHandlers();
+    console.log('✅ Request handlers registered');
+
     this.setupBackendListeners();
+    console.log('✅ Backend event listeners configured');
   }
 
   private setupBackendListeners() {
@@ -53,9 +65,12 @@ export class AiDDMCPServer {
 
   private setupHandlers() {
     // Handle tool listing
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: this.getTools(),
-    }));
+    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
+      console.log('📋 MCP Request: list_tools');
+      return {
+        tools: this.getTools(),
+      };
+    });
 
     // Handle resource listing
     this.server.setRequestHandler(ListResourcesRequestSchema, async () => ({
@@ -101,16 +116,8 @@ export class AiDDMCPServer {
             return await this.handleScoreTasks(args);
 
           // Authentication Tools
-          case 'connect':
-            return await this.handleConnect(args);
-          case 'disconnect':
-            return await this.handleDisconnect();
           case 'status':
             return await this.handleStatus();
-
-          // Utility Tools
-          case 'check_backend_health':
-            return await this.handleCheckBackendHealth();
 
           default:
             throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
@@ -135,6 +142,9 @@ export class AiDDMCPServer {
       {
         name: 'list_notes',
         description: 'List notes from your AiDD account with optional sorting and pagination',
+        annotations: {
+          readOnlyHint: true
+        },
         inputSchema: {
           type: 'object',
           properties: {
@@ -162,6 +172,9 @@ export class AiDDMCPServer {
       {
         name: 'read_note',
         description: 'Read a specific note from your AiDD account',
+        annotations: {
+          readOnlyHint: true
+        },
         inputSchema: {
           type: 'object',
           properties: {
@@ -208,6 +221,9 @@ export class AiDDMCPServer {
       {
         name: 'list_action_items',
         description: 'List action items from your AiDD account with optional sorting and pagination',
+        annotations: {
+          readOnlyHint: true
+        },
         inputSchema: {
           type: 'object',
           properties: {
@@ -235,6 +251,9 @@ export class AiDDMCPServer {
       {
         name: 'read_action_item',
         description: 'Read a specific action item from your AiDD account',
+        annotations: {
+          readOnlyHint: true
+        },
         inputSchema: {
           type: 'object',
           properties: {
@@ -282,6 +301,9 @@ export class AiDDMCPServer {
       {
         name: 'list_tasks',
         description: 'List tasks from your AiDD account with optional sorting and pagination',
+        annotations: {
+          readOnlyHint: true
+        },
         inputSchema: {
           type: 'object',
           properties: {
@@ -309,6 +331,9 @@ export class AiDDMCPServer {
       {
         name: 'read_task',
         description: 'Read a specific task from your AiDD account',
+        annotations: {
+          readOnlyHint: true
+        },
         inputSchema: {
           type: 'object',
           properties: {
@@ -359,29 +384,14 @@ export class AiDDMCPServer {
       },
 
       // =============================================================================
-      // AUTHENTICATION & UTILITY TOOLS
+      // AUTHENTICATION TOOLS
       // =============================================================================
-      {
-        name: 'connect',
-        description: 'Connect to your AiDD account. Opens browser to unified auth page where you can choose: Email/Password, Google, Apple, or Microsoft.',
-        inputSchema: {
-          type: 'object',
-          properties: {},
-        },
-      },
-      {
-        name: 'disconnect',
-        description: 'Disconnect from your AiDD account and clear credentials',
-        inputSchema: { type: 'object', properties: {} },
-      },
       {
         name: 'status',
         description: 'Check authentication status and account information',
-        inputSchema: { type: 'object', properties: {} },
-      },
-      {
-        name: 'check_backend_health',
-        description: 'Check AiDD backend service health and connectivity',
+        annotations: {
+          readOnlyHint: true
+        },
         inputSchema: { type: 'object', properties: {} },
       },
     ];
@@ -405,12 +415,6 @@ export class AiDDMCPServer {
         uri: 'aidd://tasks',
         name: 'Tasks',
         description: 'All ADHD-optimized tasks from your AiDD account',
-        mimeType: 'application/json',
-      },
-      {
-        uri: 'aidd://backend/health',
-        name: 'Backend Health',
-        description: 'AiDD backend service health status',
         mimeType: 'application/json',
       },
     ];
@@ -871,58 +875,6 @@ All tasks have been scored and saved to your AiDD account.
   // AUTHENTICATION HANDLERS
   // =============================================================================
 
-  private async handleConnect(args?: any) {
-    try {
-      const authManager = (this.backendClient as any).authManager;
-      const success = await this.backendClient.authenticate();
-
-      if (success) {
-        const info = authManager.getUserInfo();
-        return {
-          content: [{
-            type: 'text',
-            text: `✅ Connected to AiDD\n\n📧 Email: ${info.email || 'Unknown'}\n💎 Subscription: ${info.subscription || 'FREE'}\n🔑 User ID: ${info.userId || 'Unknown'}\n\nReady to manage your tasks!`,
-          } as TextContent],
-        };
-      } else {
-        return {
-          content: [{
-            type: 'text',
-            text: '❌ Failed to connect to AiDD. Please try again.',
-          } as TextContent],
-        };
-      }
-    } catch (error) {
-      return {
-        content: [{
-          type: 'text',
-          text: `❌ Error connecting to AiDD: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        } as TextContent],
-      };
-    }
-  }
-
-  private async handleDisconnect() {
-    try {
-      const authManager = (this.backendClient as any).authManager;
-      await authManager.signOut();
-
-      return {
-        content: [{
-          type: 'text',
-          text: '✅ Successfully disconnected from AiDD account',
-        } as TextContent],
-      };
-    } catch (error) {
-      return {
-        content: [{
-          type: 'text',
-          text: `❌ Error disconnecting: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        } as TextContent],
-      };
-    }
-  }
-
   private async handleStatus() {
     try {
       const authManager = (this.backendClient as any).authManager;
@@ -949,34 +901,6 @@ All tasks have been scored and saved to your AiDD account.
         content: [{
           type: 'text',
           text: `❌ Error checking status: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        } as TextContent],
-      };
-    }
-  }
-
-  // =============================================================================
-  // UTILITY HANDLERS
-  // =============================================================================
-
-  private async handleCheckBackendHealth() {
-    try {
-      const isHealthy = await this.backendClient.checkHealth();
-
-      const response = isHealthy
-        ? '✅ AiDD backend is healthy and responding'
-        : '❌ AiDD backend is not responding. Please check your connection.';
-
-      return {
-        content: [{
-          type: 'text',
-          text: response,
-        } as TextContent],
-      };
-    } catch (error) {
-      return {
-        content: [{
-          type: 'text',
-          text: `❌ Error checking backend health: ${error instanceof Error ? error.message : 'Unknown error'}`,
         } as TextContent],
       };
     }
@@ -1022,23 +946,20 @@ All tasks have been scored and saved to your AiDD account.
           }],
         };
 
-      case 'aidd://backend/health':
-        const isHealthy = await this.backendClient.checkHealth();
-        return {
-          contents: [{
-            uri,
-            mimeType: 'application/json',
-            text: JSON.stringify({ healthy: isHealthy }, null, 2),
-          }],
-        };
-
       default:
         throw new McpError(ErrorCode.InvalidRequest, `Unknown resource: ${uri}`);
     }
   }
 
   async connect(transport: Transport) {
-    await this.server.connect(transport);
+    console.log('🔌 AiDDMCPServer: Starting connection to transport...');
+    try {
+      await this.server.connect(transport);
+      console.log('✅ AiDDMCPServer: Successfully connected to transport');
+    } catch (error) {
+      console.error('❌ AiDDMCPServer: Failed to connect to transport:', error);
+      throw error;
+    }
   }
 
   async close() {

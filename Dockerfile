@@ -30,6 +30,9 @@ RUN npm ci --production
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist
 
+# Copy icon file
+COPY icon.png ./
+
 # Set environment
 ENV NODE_ENV=production
 ENV PORT=8080
