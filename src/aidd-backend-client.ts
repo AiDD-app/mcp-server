@@ -191,6 +191,7 @@ export class AiDDBackendClient extends EventEmitter {
       // Generate deviceId for this request (use userId if available, otherwise generate one)
       const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
 
+      // Step 1: Create the extraction job
       const response = await fetch(`${this.baseUrl}/api/ai/extract-action-items`, {
         method: 'POST',
         headers: {
@@ -222,8 +223,53 @@ export class AiDDBackendClient extends EventEmitter {
         return await this.handleSSEResponse(response, 'extraction');
       }
 
-      const data = await response.json() as { actionItems?: ActionItem[] };
-      return data.actionItems || [];
+      // Step 2: Parse job creation response
+      const jobData = await response.json() as { jobId?: string; actionItems?: ActionItem[] };
+
+      // If immediate results are returned (cached/mock), use them
+      if (jobData.actionItems && jobData.actionItems.length > 0) {
+        return jobData.actionItems;
+      }
+
+      // Step 3: If we got a jobId, wait for the job to complete
+      if (jobData.jobId) {
+        const waitResponse = await fetch(`${this.baseUrl}/api/ai/jobs/${jobData.jobId}/wait?timeout=90`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${this.deviceToken}`,
+            'Content-Type': 'application/json',
+            'X-Device-ID': deviceId,
+          },
+        });
+
+        if (!waitResponse.ok) {
+          throw new Error(`Job wait failed: ${waitResponse.statusText}`);
+        }
+
+        const waitResult = await waitResponse.json() as {
+          status?: string;
+          result?: { actionItems?: ActionItem[] };
+          actionItems?: ActionItem[];
+        };
+
+        // Handle different response formats
+        if (waitResult.actionItems) {
+          return waitResult.actionItems;
+        }
+        if (waitResult.result?.actionItems) {
+          return waitResult.result.actionItems;
+        }
+
+        // If job completed but no action items, return empty
+        if (waitResult.status === 'completed') {
+          console.warn('Job completed but no actionItems found in result');
+          return [];
+        }
+
+        throw new Error(`Job did not complete successfully: ${waitResult.status}`);
+      }
+
+      return [];
     } catch (error) {
       this.emit('error', { type: 'extraction', error });
       throw error;
@@ -242,6 +288,7 @@ export class AiDDBackendClient extends EventEmitter {
       // Generate deviceId for this request (use userId if available, otherwise generate one)
       const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
 
+      // Step 1: Create the conversion job
       const response = await fetch(`${this.baseUrl}/api/ai/convert-action-items`, {
         method: 'POST',
         headers: {
@@ -267,8 +314,53 @@ export class AiDDBackendClient extends EventEmitter {
         return await this.handleSSEResponse(response, 'conversion');
       }
 
-      const data = await response.json() as { tasks?: ConvertedTask[] };
-      return data.tasks || [];
+      // Step 2: Parse job creation response
+      const jobData = await response.json() as { jobId?: string; tasks?: ConvertedTask[] };
+
+      // If immediate results are returned (cached/mock), use them
+      if (jobData.tasks && jobData.tasks.length > 0) {
+        return jobData.tasks;
+      }
+
+      // Step 3: If we got a jobId, wait for the job to complete
+      if (jobData.jobId) {
+        const waitResponse = await fetch(`${this.baseUrl}/api/ai/jobs/${jobData.jobId}/wait?timeout=90`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${this.deviceToken}`,
+            'Content-Type': 'application/json',
+            'X-Device-ID': deviceId,
+          },
+        });
+
+        if (!waitResponse.ok) {
+          throw new Error(`Job wait failed: ${waitResponse.statusText}`);
+        }
+
+        const waitResult = await waitResponse.json() as {
+          status?: string;
+          result?: { tasks?: ConvertedTask[] };
+          tasks?: ConvertedTask[];
+        };
+
+        // Handle different response formats
+        if (waitResult.tasks) {
+          return waitResult.tasks;
+        }
+        if (waitResult.result?.tasks) {
+          return waitResult.result.tasks;
+        }
+
+        // If job completed but no tasks, return empty
+        if (waitResult.status === 'completed') {
+          console.warn('Job completed but no tasks found in result');
+          return [];
+        }
+
+        throw new Error(`Job did not complete successfully: ${waitResult.status}`);
+      }
+
+      return [];
     } catch (error) {
       this.emit('error', { type: 'conversion', error });
       throw error;
@@ -287,6 +379,7 @@ export class AiDDBackendClient extends EventEmitter {
       // Generate deviceId for this request (use userId if available, otherwise generate one)
       const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
 
+      // Step 1: Create the scoring job
       const response = await fetch(`${this.baseUrl}/api/ai/score-tasks`, {
         method: 'POST',
         headers: {
@@ -323,8 +416,53 @@ export class AiDDBackendClient extends EventEmitter {
         return await this.handleSSEResponse(response, 'scoring');
       }
 
-      const data = await response.json() as { scoredTasks?: ScoredTask[] };
-      return data.scoredTasks || [];
+      // Step 2: Parse job creation response
+      const jobData = await response.json() as { jobId?: string; scoredTasks?: ScoredTask[] };
+
+      // If immediate results are returned (cached/mock), use them
+      if (jobData.scoredTasks && jobData.scoredTasks.length > 0) {
+        return jobData.scoredTasks;
+      }
+
+      // Step 3: If we got a jobId, wait for the job to complete
+      if (jobData.jobId) {
+        const waitResponse = await fetch(`${this.baseUrl}/api/ai/jobs/${jobData.jobId}/wait?timeout=90`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${this.deviceToken}`,
+            'Content-Type': 'application/json',
+            'X-Device-ID': deviceId,
+          },
+        });
+
+        if (!waitResponse.ok) {
+          throw new Error(`Job wait failed: ${waitResponse.statusText}`);
+        }
+
+        const waitResult = await waitResponse.json() as {
+          status?: string;
+          result?: { scoredTasks?: ScoredTask[] };
+          scoredTasks?: ScoredTask[];
+        };
+
+        // Handle different response formats
+        if (waitResult.scoredTasks) {
+          return waitResult.scoredTasks;
+        }
+        if (waitResult.result?.scoredTasks) {
+          return waitResult.result.scoredTasks;
+        }
+
+        // If job completed but no scored tasks, return empty
+        if (waitResult.status === 'completed') {
+          console.warn('Job completed but no scoredTasks found in result');
+          return [];
+        }
+
+        throw new Error(`Job did not complete successfully: ${waitResult.status}`);
+      }
+
+      return [];
     } catch (error) {
       this.emit('error', { type: 'scoring', error });
       throw error;
