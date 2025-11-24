@@ -441,7 +441,10 @@ export class AiDDBackendClient extends EventEmitter {
 
         const waitResult = await waitResponse.json() as {
           status?: string;
-          result?: { scoredTasks?: ScoredTask[] };
+          result?: {
+            scores?: Record<string, { urgency: number; impact: number; relevance: number; energy: number }>;
+            scoredTasks?: ScoredTask[];
+          };
           scoredTasks?: ScoredTask[];
         };
 
@@ -453,9 +456,51 @@ export class AiDDBackendClient extends EventEmitter {
           return waitResult.result.scoredTasks;
         }
 
-        // If job completed but no scored tasks, return empty
+        // Handle backend format: result.scores is an object keyed by task ID
+        if (waitResult.status === 'completed' && waitResult.result?.scores) {
+          const scores = waitResult.result.scores;
+          const scoredTasks: ScoredTask[] = [];
+
+          // Create a map of original tasks for lookup
+          const taskMap = new Map<string, any>();
+          tasks.forEach(task => {
+            const taskId = (task as any).id;
+            if (taskId) {
+              taskMap.set(taskId, task);
+            }
+          });
+
+          // Convert scores object to ScoredTask array
+          for (const [taskId, scoreData] of Object.entries(scores)) {
+            const originalTask = taskMap.get(taskId);
+            const overallScore = Math.round((scoreData.urgency + scoreData.impact + scoreData.relevance) / 3);
+
+            scoredTasks.push({
+              id: taskId,
+              title: originalTask?.title || `Task ${taskId}`,
+              score: overallScore,
+              factors: {
+                urgency: Math.round(scoreData.urgency / 10), // Convert 0-100 to 0-10
+                importance: Math.round(scoreData.impact / 10),
+                effort: Math.round(scoreData.energy), // Energy is already 1-5 scale, use as effort
+                adhd_compatibility: Math.round((100 - scoreData.energy * 20) / 10), // Inverse energy for ADHD (lower energy = higher compatibility)
+              },
+              recommendation: overallScore >= 70
+                ? 'High priority - tackle this soon!'
+                : overallScore >= 40
+                  ? 'Medium priority - schedule when ready'
+                  : 'Lower priority - can wait',
+            });
+          }
+
+          // Sort by score descending
+          scoredTasks.sort((a, b) => b.score - a.score);
+          return scoredTasks;
+        }
+
+        // If job completed but no scores, return empty
         if (waitResult.status === 'completed') {
-          console.warn('Job completed but no scoredTasks found in result');
+          console.warn('Job completed but no scores found in result');
           return [];
         }
 
