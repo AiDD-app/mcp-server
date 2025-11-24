@@ -188,13 +188,18 @@ export class AiDDBackendClient extends EventEmitter {
     }
 
     try {
+      // Generate deviceId for this request (use userId if available, otherwise generate one)
+      const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
+
       const response = await fetch(`${this.baseUrl}/api/ai/extract-action-items`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${this.deviceToken}`,
           'Content-Type': 'application/json',
+          'X-Device-ID': deviceId,
         },
         body: JSON.stringify({
+          deviceId: deviceId, // Also include in body as fallback
           notes: notes.map(note => ({
             id: note.id,
             content: note.content,
@@ -234,13 +239,18 @@ export class AiDDBackendClient extends EventEmitter {
     }
 
     try {
+      // Generate deviceId for this request (use userId if available, otherwise generate one)
+      const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
+
       const response = await fetch(`${this.baseUrl}/api/ai/convert-action-items`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${this.deviceToken}`,
           'Content-Type': 'application/json',
+          'X-Device-ID': deviceId,
         },
         body: JSON.stringify({
+          deviceId: deviceId, // Also include in body as fallback
           actionItems,
           conversionMode: 'adhd-optimized',
           breakdownComplexTasks: true,
