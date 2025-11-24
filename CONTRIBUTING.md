@@ -140,7 +140,7 @@ docs(readme): update authentication flow instructions
 
 ### Integration Testing
 
-Test with Claude Desktop:
+For local development, you can test changes with Claude Desktop:
 
 1. Update your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
    ```json
@@ -155,6 +155,8 @@ Test with Claude Desktop:
 
 2. Restart Claude Desktop
 3. Test authentication and tool calls
+
+**Note**: This is for development/testing only. Production users should always use the hosted service at `https://mcp.aidd.app/mcp`.
 
 ### Test Account
 
@@ -284,7 +286,7 @@ try {
 Use descriptive console logs:
 
 ```typescript
-console.log('=Ý MCP Request: list_notes');
+console.log('=ï¿½ MCP Request: list_notes');
 console.log(' Notes retrieved:', notes.length);
 console.error('L OAuth error:', error);
 ```
@@ -374,4 +376,4 @@ By contributing, you agree that your contributions will be licensed under the MI
 
 ---
 
-Thank you for contributing to AiDD MCP Server! <‰
+Thank you for contributing to AiDD MCP Server! <ï¿½

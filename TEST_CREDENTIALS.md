@@ -127,7 +127,7 @@ The test account comes with sample data to make testing easier:
 - **URL**: `https://aidd-backend-prod-739193356129.us-central1.run.app`
 - **Health Check**: `https://aidd-backend-prod-739193356129.us-central1.run.app/health`
 - **Status**: ✅ Running on Google Cloud Run with auto-scaling
-- **AI Engine**: Google Gemini 2.5 Pro & Flash
+- **AI Engine**: Google Gemini 3 Pro Preview & 2.5 Flash
 
 ### MCP Connector
 - **URL**: `https://mcp.aidd.app/mcp`

@@ -158,7 +158,7 @@ Unlike basic note tools, AiDD guides you through a complete workflow:
 
 ### 2. Backend AI Processing
 All AI operations use your production backend:
-- **Extraction**: Gemini 2.5 for finding action items
+- **Extraction**: Gemini 3 Pro Preview for finding action items
 - **Conversion**: ADHD-optimized task breakdown
 - **Scoring**: Multi-factor prioritization
 
@@ -262,7 +262,7 @@ The tasks created here will:
 
 - **MCP Server**: v2.0.0 (Backend Integrated)
 - **Backend API**: Production (https://aidd-backend-prod-739193356129.us-central1.run.app)
-- **AI Models**: Gemini 2.5 Pro/Flash
+- **AI Models**: Gemini 3 Pro Preview/2.5 Flash
 - **Compatibility**: AiDD iOS 3.2.5+
 
 ---

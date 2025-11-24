@@ -200,7 +200,7 @@ Created comprehensive contribution guidelines for the open-source repository:
 - Platform: Google Cloud Run (HA: 2-100 instances)
 - Data: Firestore (encrypted at rest)
 - Sessions: Redis HA (5GB, read replicas)
-- AI Engine: Google Gemini 2.5 Pro & Flash
+- AI Engine: Google Gemini 3 Pro Preview & 2.5 Flash
 
 **Universal Access**:
 - ✅ Claude.ai (desktop browsers)
@@ -243,13 +243,13 @@ Created comprehensive contribution guidelines for the open-source repository:
 - **Use Case**: Transform meeting notes into actionable tasks
 
 ### 2. ADHD-Optimized Task Breakdown
-- **Model**: Google Gemini 2.5 Pro
+- **Model**: Google Gemini 3 Pro Preview
 - **Input**: Action items
 - **Output**: Subtasks with time estimates, energy requirements, dependencies
 - **Use Case**: Break overwhelming tasks into manageable steps
 
 ### 3. Smart Task Prioritization
-- **Model**: Google Gemini 2.5 Pro
+- **Model**: Google Gemini 3 Pro Preview
 - **Input**: All tasks
 - **Output**: AI scores (urgency × importance × energy × ADHD compatibility)
 - **Use Case**: "What should I work on next?" - personalized recommendations

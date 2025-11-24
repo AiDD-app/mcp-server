@@ -51,8 +51,6 @@ Simply connect via URL - no local installation required.
 
 ## Quick Start
 
-### Using Hosted Service (Recommended)
-
 **Production URL**: `https://mcp.aidd.app/mcp`
 
 1. Open [claude.ai](https://claude.ai) → Settings
@@ -73,23 +71,6 @@ Claude: [shows your AiDD tasks]
 You: score my tasks and tell me what to work on next
 Claude: [AI analyzes and prioritizes your tasks]
 ```
-
-### Self-Hosting on Google Cloud Run
-
-**Prerequisites**:
-- Google Cloud account with billing enabled
-- `gcloud` CLI installed
-
-**One-Command Deploy**:
-
-```bash
-git clone https://github.com/aidd-app/mcp-server.git
-cd mcp-server
-chmod +x deploy-cloud-run.sh
-./deploy-cloud-run.sh
-```
-
-Your service will be live at: `https://aidd-mcp-connector-<hash>.run.app`
 
 ## Available Tools
 
@@ -148,35 +129,13 @@ Your service will be live at: `https://aidd-mcp-connector-<hash>.run.app`
 - **Auth**: OAuth 2.0 + JWT
 - **AI**: Google Gemini (pro & flash)
 
-## Development
+## Testing the Connector
 
-### Local Testing
-
-```bash
-npm install
-npm run dev
-```
-
-Server runs on `http://localhost:8080`
-
-**Test endpoints**:
-```bash
-curl http://localhost:8080/health
-curl http://localhost:8080/
-```
-
-### Docker Build
+You can verify the connector is running:
 
 ```bash
-docker build -t aidd-mcp-connector .
-docker run -p 8080:8080 aidd-mcp-connector
-```
-
-### Production Build
-
-```bash
-npm run build
-npm start
+curl https://mcp.aidd.app/health
+curl https://mcp.aidd.app/
 ```
 
 ## Subscription Tiers
@@ -218,51 +177,12 @@ AiDD processes your notes, tasks, and action items to provide AI-powered product
 - Tasks: AI-scored for prioritization, scores stored with task data
 - Authentication: OAuth tokens stored securely, no passwords retained
 
-## Production Deployment
-
-### Cloud Run Best Practices
-
-```yaml
-Service: aidd-mcp-connector
-Region: us-central1
-Memory: 1Gi
-CPU: 1 vCPU
-Min instances: 1    # Warm instance for low latency
-Max instances: 10   # Auto-scale under load
-Timeout: 300s       # 5min for AI operations
-Concurrency: 80     # Requests per container
-```
-
-### Environment Variables
-
-```bash
-NODE_ENV=production
-PORT=8080
-```
-
-### Custom Domain
-
-```bash
-gcloud run domain-mappings create \
-  --service aidd-mcp-connector \
-  --domain mcp.yourdomain.com \
-  --region us-central1
-```
-
-### Monitoring
-
-View metrics in [GCP Console](https://console.cloud.google.com/run):
-- Request count & latency
-- Error rates
-- Container instances
-- Memory/CPU usage
-
 ## Troubleshooting
 
 ### "Connection Failed"
-1. Check health: `curl https://your-url/health`
-2. Verify CORS: claude.ai must be in allowed origins
-3. Check logs: `gcloud run services logs read --limit 50`
+1. Check health: `curl https://mcp.aidd.app/health`
+2. Verify you're using the correct URL: `https://mcp.aidd.app/mcp`
+3. Try removing and re-adding the connector in Claude settings
 
 ### "Authentication Error"
 1. Use `connect` tool in Claude
@@ -325,7 +245,7 @@ MIT © AiDD Team
 ### v4.0.0 (2025-01-22) - Web Connector Edition
 - 🌐 **Breaking**: Transitioned from stdio to HTTP/SSE transport
 - 📱 **New**: Universal access (web, mobile, desktop)
-- ☁️ **New**: Cloud Run deployment with auto-scaling
+- ☁️ **New**: Hosted service with auto-scaling
 - 🔒 **Enhanced**: CORS for Claude domains
 - ❌ **Removed**: Apple Notes integration (use separate MCP)
 - ⚡ **Improved**: Cloud-native observability
