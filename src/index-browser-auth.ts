@@ -323,11 +323,12 @@ class AiDDBrowserAuthServer {
               await this.saveCredentials();
 
               // Send success response
-              res.writeHead(200, { 'Content-Type': 'text/html' });
+              res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
               res.end(`
                 <!DOCTYPE html>
                 <html>
                 <head>
+                  <meta charset="UTF-8">
                   <title>OAuth Authentication Successful</title>
                   <style>
                     body {
@@ -368,8 +369,8 @@ class AiDDBrowserAuthServer {
                 <body>
                   <div class="container">
                     <div class="success">✓</div>
-                    <h1>Successfully Connected!</h1>
-                    <p>Email: ${this.authState.email}</p>
+                    <h1>✅ Connected to AiDD</h1>
+                    <p>✉️ ${this.authState.email}</p>
                     <p>Subscription:
                       <span class="subscription ${(this.authState.subscription || 'FREE').toLowerCase()}">
                         ${this.authState.subscription || 'FREE'}
@@ -621,6 +622,7 @@ class AiDDBrowserAuthServer {
                 <!DOCTYPE html>
                 <html>
                 <head>
+                  <meta charset="UTF-8">
                   <title>Authentication Successful</title>
                   <style>
                     body {
@@ -663,7 +665,7 @@ class AiDDBrowserAuthServer {
                   <div class="container">
                     <div class="success">✓</div>
                     <h1>Successfully Connected!</h1>
-                    <p class="info">Email: ${data.user?.email || email}</p>
+                    <p class="info">✉️ ${data.user?.email || email}</p>
                     <p class="info">Subscription:
                       <span class="subscription ${subscription.toLowerCase()}">
                         ${subscription}

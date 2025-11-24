@@ -274,13 +274,18 @@ export class AiDDBackendClient extends EventEmitter {
     }
 
     try {
+      // Generate deviceId for this request (use userId if available, otherwise generate one)
+      const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
+
       const response = await fetch(`${this.baseUrl}/api/ai/score-tasks`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${this.deviceToken}`,
           'Content-Type': 'application/json',
+          'X-Device-ID': deviceId,
         },
         body: JSON.stringify({
+          deviceId: deviceId, // Also include in body as fallback
           tasks: tasks.map(task => ({
             id: crypto.randomUUID(),
             title: task.title,
