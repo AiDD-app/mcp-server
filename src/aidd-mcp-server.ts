@@ -679,14 +679,22 @@ Action items have been saved to your AiDD account.
 
 **Total tasks:** ${tasks.length}
 
-${tasks.slice(0, 10).map((task: any, i: number) => `
+${tasks.slice(0, 10).map((task: any, i: number) => {
+  const hasScores = task.relevanceScore !== undefined && task.impactScore !== undefined && task.urgencyScore !== undefined;
+  const overallScore = hasScores ? ((task.relevanceScore + task.impactScore + task.urgencyScore) / 3 * 100).toFixed(0) : undefined;
+
+  return `
 ${i + 1}. **${task.title}**
    • ID: ${task.id}
-   ${task.score !== undefined ? `• Score: ${task.score}/100` : ''}
+   ${task.hasBeenAIScored && overallScore ? `• Overall AI Score: ${overallScore}%` : ''}
+   ${task.relevanceScore !== undefined ? `• Relevance: ${(task.relevanceScore * 100).toFixed(0)}%` : ''}
+   ${task.impactScore !== undefined ? `• Impact: ${(task.impactScore * 100).toFixed(0)}%` : ''}
+   ${task.urgencyScore !== undefined ? `• Urgency: ${(task.urgencyScore * 100).toFixed(0)}%` : ''}
    ${task.estimatedTime ? `• Time: ${task.estimatedTime} min` : ''}
    ${task.energyRequired ? `• Energy: ${task.energyRequired}` : ''}
    ${task.dueDate ? `• Due: ${new Date(task.dueDate).toLocaleDateString()}` : ''}
-`).join('\n')}
+`;
+}).join('\n')}
 ${tasks.length > 10 ? `\n... and ${tasks.length - 10} more tasks` : ''}
       `;
 
@@ -710,12 +718,19 @@ ${tasks.length > 10 ? `\n... and ${tasks.length - 10} more tasks` : ''}
     try {
       const task = await this.backendClient.readTask(args.taskId);
 
+      const hasScores = task.relevanceScore !== undefined && task.impactScore !== undefined && task.urgencyScore !== undefined;
+      const overallScore = hasScores ? ((task.relevanceScore + task.impactScore + task.urgencyScore) / 3 * 100).toFixed(0) : undefined;
+
       const response = `
 ✅ **Task Details**
 
 **Title:** ${task.title}
 **ID:** ${task.id}
-${task.score !== undefined ? `**Score:** ${task.score}/100` : ''}
+${task.hasBeenAIScored ? `**AI Scored:** ✓` : ''}
+${overallScore ? `**Overall AI Score:** ${overallScore}%` : ''}
+${task.relevanceScore !== undefined ? `**Relevance Score:** ${(task.relevanceScore * 100).toFixed(0)}%` : ''}
+${task.impactScore !== undefined ? `**Impact Score:** ${(task.impactScore * 100).toFixed(0)}%` : ''}
+${task.urgencyScore !== undefined ? `**Urgency Score:** ${(task.urgencyScore * 100).toFixed(0)}%` : ''}
 ${task.estimatedTime ? `**Estimated Time:** ${task.estimatedTime} minutes` : ''}
 ${task.energyRequired ? `**Energy Required:** ${task.energyRequired}` : ''}
 ${task.taskType ? `**Task Type:** ${task.taskType}` : ''}
