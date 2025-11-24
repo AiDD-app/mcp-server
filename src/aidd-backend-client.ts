@@ -297,7 +297,7 @@ export class AiDDBackendClient extends EventEmitter {
         body: JSON.stringify({
           deviceId: deviceId, // Also include in body as fallback
           tasks: tasks.map(task => ({
-            id: crypto.randomUUID(),
+            id: (task as any).id || crypto.randomUUID(), // Use existing task ID if available, otherwise generate new one
             title: task.title,
             description: task.description,
             dueDate: task.dueDate,
