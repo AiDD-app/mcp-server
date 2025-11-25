@@ -258,11 +258,11 @@ Created comprehensive contribution guidelines for the open-source repository:
 
 ## Subscription Tiers & Rate Limits
 
-| Tier | Notes/day | Action Items/day | AI Extraction/day | AI Scoring/day |
-|------|-----------|------------------|-------------------|----------------|
-| **FREE** | 100 | 50 | 20 | 10 |
-| **PREMIUM** | 1,000 | 500 | 100 | 50 |
-| **PRO** | Unlimited | Unlimited | Unlimited | Unlimited |
+| Tier | Notes/mo | Extractions/mo | Conversions/mo | Scoring/mo | Max Stored |
+|------|----------|----------------|----------------|------------|------------|
+| **FREE** | 10 | 5 | 5 | 3 | 25 |
+| **PREMIUM** | 100 | 50 | 50 | 25 | 500 |
+| **PRO** | Unlimited | Unlimited | Unlimited | Unlimited | Unlimited |
 
 **Test Account**: PREMIUM tier (unlimited during review)
 
