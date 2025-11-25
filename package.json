@@ -1,6 +1,6 @@
 {
   "name": "@aidd-app/mcp",
-  "version": "4.0.0",
+  "version": "4.0.1",
   "description": "Official AiDD MCP Web Connector - Comprehensive ADHD-optimized productivity platform with AI-powered task management, action item extraction, Apple Notes integration, and multi-service sync. Accessible from Claude web, mobile, and desktop.",
   "main": "dist/server.js",
   "type": "module",

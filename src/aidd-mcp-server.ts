@@ -28,10 +28,11 @@ export class AiDDMCPServer {
     this.server = new Server(
       {
         name: 'AiDD',
-        version: '4.0.0',
+        version: '4.0.1',
         icons: [{
           src: `${BASE_URL}/icon.png`,
-          mimeType: 'image/png'
+          mimeType: 'image/png',
+          sizes: ['64x64']
         }],
       },
       {

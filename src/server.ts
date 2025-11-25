@@ -7,7 +7,7 @@ import { AiDDMCPServer } from './aidd-mcp-server.js';
 
 const app = express();
 const PORT = process.env.PORT || 8080;
-const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+const BASE_URL = process.env.BASE_URL || 'https://mcp.aidd.app';
 
 // Middleware
 app.use(cors({
@@ -41,6 +41,9 @@ app.get('/.well-known/oauth-authorization-server', (req, res) => {
     grant_types_supported: ['authorization_code', 'refresh_token'],
     token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic'],
     code_challenge_methods_supported: ['S256'],
+    // Icon/logo fields for Claude connector display
+    logo_uri: `${BASE_URL}/icon.png`,
+    service_documentation: `${BASE_URL}`,
   });
 });
 
@@ -243,26 +246,43 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     service: 'AiDD MCP Web Connector',
-    version: '4.0.0',
+    version: '4.0.1',
     timestamp: new Date().toISOString(),
   });
 });
 
-// Icon endpoint - serve optimized 128x128 PNG
+// Icon endpoint - serve optimized PNG (64x64 for better UI display)
 app.get('/icon.png', (req, res) => {
   res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
+  res.setHeader('Access-Control-Allow-Origin', '*'); // Allow cross-origin for Claude
+  res.sendFile('icon-64.png', { root: '.' });
+});
+
+// Larger 128x128 icon
+app.get('/icon-128.png', (req, res) => {
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.sendFile('icon.png', { root: '.' });
 });
 
-// Smaller 64x64 icon for Claude
-app.get('/icon-64.png', (req, res) => {
+// Alternative paths Claude might check
+app.get('/logo.png', (req, res) => {
   res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.sendFile('icon-64.png', { root: '.' });
+});
+
+app.get('/.well-known/logo', (req, res) => {
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Content-Type', 'image/png');
   res.sendFile('icon-64.png', { root: '.' });
 });
 
 // Favicon endpoint (Claude may look for this)
 app.get('/favicon.ico', (req, res) => {
   res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Content-Type', 'image/png'); // Serve PNG as favicon
   res.sendFile('favicon-32.png', { root: '.' });
 });
@@ -285,7 +305,7 @@ app.get('/', (req, res) => {
   res.setHeader('X-MCP-Transport', 'sse');
   res.json({
     name: 'AiDD MCP Web Connector',
-    version: '4.0.0',
+    version: '4.0.1',
     description: 'ADHD-optimized productivity platform with AI-powered task management',
     icon: `${BASE_URL}/icon.png`,
     endpoints: {
@@ -322,7 +342,7 @@ app.get('/mcp', (req, res) => {
   res.setHeader('X-MCP-Transport', 'sse');
   res.json({
     name: 'AiDD',
-    version: '4.0.0',
+    version: '4.0.1',
     protocol: 'mcp',
     protocolVersion: '2024-11-05',
     transport: 'sse',
