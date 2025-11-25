@@ -383,11 +383,14 @@ class AiDDBrowserAuthServer {
                   </div>
                 </body>
                 </html>
-              `);
-
-              this.httpServer?.close();
-              this.authInProgress = false;
-              resolve();
+              `, () => {
+                // Wait for response to be fully sent before closing server
+                setTimeout(() => {
+                  this.httpServer?.close();
+                  this.authInProgress = false;
+                  resolve();
+                }, 500);
+              });
               return;
             } catch (error: any) {
               res.writeHead(200, { 'Content-Type': 'text/html' });
@@ -410,10 +413,14 @@ class AiDDBrowserAuthServer {
                   </script>
                 </body>
                 </html>
-              `);
-              this.httpServer?.close();
-              this.authInProgress = false;
-              reject(error);
+              `, () => {
+                // Wait for response to be fully sent before closing server
+                setTimeout(() => {
+                  this.httpServer?.close();
+                  this.authInProgress = false;
+                  reject(error);
+                }, 500);
+              });
               return;
             }
           }
@@ -446,10 +453,13 @@ class AiDDBrowserAuthServer {
                 <p>You can close this window and return to Claude Desktop.</p>
               </body>
               </html>
-            `);
-            this.httpServer?.close();
-            this.authInProgress = false;
-            reject(new Error(error));
+            `, () => {
+              setTimeout(() => {
+                this.httpServer?.close();
+                this.authInProgress = false;
+                reject(new Error(error));
+              }, 500);
+            });
             return;
           }
 
@@ -511,18 +521,23 @@ class AiDDBrowserAuthServer {
                 </div>
               </body>
               </html>
-            `);
-
-            this.httpServer?.close();
-            this.authInProgress = false;
-            resolve();
+            `, () => {
+              setTimeout(() => {
+                this.httpServer?.close();
+                this.authInProgress = false;
+                resolve();
+              }, 500);
+            });
             return;
           } else {
             res.writeHead(400, { 'Content-Type': 'text/plain' });
-            res.end('Missing access token from SSO provider');
-            this.httpServer?.close();
-            this.authInProgress = false;
-            reject(new Error('Missing SSO tokens'));
+            res.end('Missing access token from SSO provider', () => {
+              setTimeout(() => {
+                this.httpServer?.close();
+                this.authInProgress = false;
+                reject(new Error('Missing SSO tokens'));
+              }, 500);
+            });
             return;
           }
         }
@@ -552,10 +567,13 @@ class AiDDBrowserAuthServer {
                 <p>You can close this window and return to Claude Desktop.</p>
               </body>
               </html>
-            `);
-            this.httpServer?.close();
-            this.authInProgress = false;
-            reject(new Error(error));
+            `, () => {
+              setTimeout(() => {
+                this.httpServer?.close();
+                this.authInProgress = false;
+                reject(new Error(error));
+              }, 500);
+            });
             return;
           }
 
@@ -678,24 +696,32 @@ class AiDDBrowserAuthServer {
                   </div>
                 </body>
                 </html>
-              `);
-
-              this.httpServer?.close();
-              this.authInProgress = false;
-              resolve();
+              `, () => {
+                setTimeout(() => {
+                  this.httpServer?.close();
+                  this.authInProgress = false;
+                  resolve();
+                }, 500);
+              });
             } catch (error) {
               res.writeHead(500, { 'Content-Type': 'text/plain' });
-              res.end('Authentication failed: ' + (error as Error).message);
-              this.httpServer?.close();
-              this.authInProgress = false;
-              reject(error);
+              res.end('Authentication failed: ' + (error as Error).message, () => {
+                setTimeout(() => {
+                  this.httpServer?.close();
+                  this.authInProgress = false;
+                  reject(error);
+                }, 500);
+              });
             }
           } else {
             res.writeHead(400, { 'Content-Type': 'text/plain' });
-            res.end('Missing email or password');
-            this.httpServer?.close();
-            this.authInProgress = false;
-            reject(new Error('Missing credentials'));
+            res.end('Missing email or password', () => {
+              setTimeout(() => {
+                this.httpServer?.close();
+                this.authInProgress = false;
+                reject(new Error('Missing credentials'));
+              }, 500);
+            });
           }
         } else if (url.pathname === '/') {
           // Serve the login page
