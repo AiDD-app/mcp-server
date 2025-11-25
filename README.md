@@ -381,11 +381,12 @@ curl https://mcp.aidd.app/.well-known/oauth-authorization-server
 
 ## Subscription Tiers
 
-| Tier | Notes/mo | Extractions/mo | Conversions/mo | Scoring/mo | Max Stored |
-|------|----------|----------------|----------------|------------|------------|
-| **FREE** | 10 | 5 | 5 | 3 | 25 |
-| **PREMIUM** | 100 | 50 | 50 | 25 | 500 |
-| **PRO** | Unlimited | Unlimited | Unlimited | Unlimited | Unlimited |
+| Tier | AI Scoring | AI Extractions | Task Conversions | Cooldown |
+|------|------------|----------------|------------------|----------|
+| **FREE** | 1/month | 3/week | 1/week | 5 min |
+| **PRO** | 10/day | 200/week | 200/week | None |
+
+**PRO Plans**: $4.99/month or $49.99/year (save $10)
 
 Upgrade at: [https://aidd.app/upgrade](https://aidd.app/upgrade)
 

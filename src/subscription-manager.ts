@@ -9,7 +9,7 @@
 // TYPES
 // =============================================================================
 
-export type SubscriptionTier = 'FREE' | 'PREMIUM' | 'PRO';
+export type SubscriptionTier = 'FREE' | 'PRO';
 
 export interface SubscriptionStatus {
   tier: SubscriptionTier;
@@ -19,20 +19,18 @@ export interface SubscriptionStatus {
 }
 
 export interface UsageLimits {
-  notesPerMonth: number;
-  extractionsPerMonth: number;
-  conversionsPerMonth: number;
-  scoringPerMonth: number;
-  maxNotesStored: number;
+  scoringPerMonth: number;    // FREE: 1/month, PRO: 10/day (300/month)
+  extractionsPerWeek: number; // FREE: 3/week, PRO: 200/week
+  conversionsPerWeek: number; // FREE: 1/week, PRO: 200/week
+  cooldownMinutes: number;    // FREE: 5 min, PRO: 0
 }
 
 export interface CurrentUsage {
-  notesThisMonth: number;
-  extractionsThisMonth: number;
-  conversionsThisMonth: number;
   scoringThisMonth: number;
-  totalNotesStored: number;
-  resetDate: string;
+  extractionsThisWeek: number;
+  conversionsThisWeek: number;
+  weeklyResetDate: string;
+  monthlyResetDate: string;
 }
 
 export interface UsageCheckResult {
@@ -46,7 +44,7 @@ export interface UsageCheckResult {
   warningMessage?: string;
 }
 
-export type OperationType = 'extraction' | 'conversion' | 'scoring' | 'notes' | 'storage';
+export type OperationType = 'extraction' | 'conversion' | 'scoring';
 
 // =============================================================================
 // TIER LIMITS CONFIGURATION
@@ -54,25 +52,16 @@ export type OperationType = 'extraction' | 'conversion' | 'scoring' | 'notes' | 
 
 export const TIER_LIMITS: Record<SubscriptionTier, UsageLimits> = {
   FREE: {
-    notesPerMonth: 10,
-    extractionsPerMonth: 5,
-    conversionsPerMonth: 5,
-    scoringPerMonth: 3,
-    maxNotesStored: 25,
-  },
-  PREMIUM: {
-    notesPerMonth: 100,
-    extractionsPerMonth: 50,
-    conversionsPerMonth: 50,
-    scoringPerMonth: 25,
-    maxNotesStored: 500,
+    scoringPerMonth: 1,       // 1 AI scoring per month
+    extractionsPerWeek: 3,    // 3 extractions per week
+    conversionsPerWeek: 1,    // 1 conversion per week
+    cooldownMinutes: 5,       // 5 minute cooldown between operations
   },
   PRO: {
-    notesPerMonth: -1, // Unlimited
-    extractionsPerMonth: -1,
-    conversionsPerMonth: -1,
-    scoringPerMonth: -1,
-    maxNotesStored: -1,
+    scoringPerMonth: 300,     // 10 per day = ~300 per month
+    extractionsPerWeek: 200,  // 200 extractions per week
+    conversionsPerWeek: 200,  // 200 conversions per week
+    cooldownMinutes: 0,       // No cooldown
   },
 };
 
@@ -121,35 +110,23 @@ const OPERATION_NAMES: Record<OperationType, string> = {
   extraction: 'AI extractions',
   conversion: 'task conversions',
   scoring: 'AI scoring runs',
-  notes: 'notes created',
-  storage: 'notes stored',
 };
 
 const FEATURE_BENEFITS: Record<OperationType, string[]> = {
   extraction: [
-    '10x more AI-powered action item extraction',
+    '200 AI extractions per week (vs 3 free)',
     'Batch processing for multiple notes',
-    'Higher accuracy extraction mode',
+    'No cooldown between operations',
   ],
   conversion: [
-    '10x more ADHD-optimized task conversions',
-    'Advanced task breakdown algorithms',
-    'Custom conversion preferences',
+    '200 task conversions per week (vs 1 free)',
+    'Advanced ADHD-optimized breakdowns',
+    'No cooldown between operations',
   ],
   scoring: [
-    '8x more AI task scoring runs',
+    '10 AI scoring runs per day (vs 1/month free)',
     'Real-time priority updates',
     'Personalized ADHD scoring factors',
-  ],
-  notes: [
-    '10x more notes per month',
-    'Unlimited note length',
-    'Rich formatting support',
-  ],
-  storage: [
-    '20x more note storage',
-    'Automatic backups',
-    'Cross-device sync',
   ],
 };
 
@@ -170,14 +147,16 @@ export function generateLimitMessage(params: {
     day: 'numeric'
   });
 
-  // Determine recommended plan based on current tier
+  // Scoring is monthly, extractions/conversions are weekly
+  const periodText = operation === 'scoring' ? 'this month' : 'this week';
+
   // Actual pricing: PRO Monthly $4.99/mo, PRO Annual $49.99/yr (save $10)
   const recommendedPlan = 'Pro';
   const recommendedPrice = '$4.99/mo or $49.99/yr';
 
   return `⚠️ **${tier} Tier Limit Reached**
 
-You've used **${current}/${limit}** ${featureName} this month.
+You've used **${current}/${limit}** ${featureName} ${periodText}.
 Your usage resets on **${resetDateFormatted}**.
 
 ---
@@ -218,7 +197,9 @@ export function generateUsageWarning(params: {
   // Warning at 80% usage
   if (percentUsed >= 80 && remaining > 0) {
     const featureName = OPERATION_NAMES[operation];
-    return `📊 _${tier} tier: ${remaining} ${featureName} remaining this month_`;
+    // Scoring is monthly, extractions/conversions are weekly
+    const periodText = operation === 'scoring' ? 'this month' : 'this week';
+    return `📊 _${tier} tier: ${remaining} ${featureName} remaining ${periodText}_`;
   }
 
   return null;
@@ -250,24 +231,16 @@ export class SubscriptionManager {
 
     switch (operation) {
       case 'extraction':
-        limit = limits.extractionsPerMonth;
-        current = currentUsage.extractionsThisMonth;
+        limit = limits.extractionsPerWeek;
+        current = currentUsage.extractionsThisWeek;
         break;
       case 'conversion':
-        limit = limits.conversionsPerMonth;
-        current = currentUsage.conversionsThisMonth;
+        limit = limits.conversionsPerWeek;
+        current = currentUsage.conversionsThisWeek;
         break;
       case 'scoring':
         limit = limits.scoringPerMonth;
         current = currentUsage.scoringThisMonth;
-        break;
-      case 'notes':
-        limit = limits.notesPerMonth;
-        current = currentUsage.notesThisMonth;
-        break;
-      case 'storage':
-        limit = limits.maxNotesStored;
-        current = currentUsage.totalNotesStored;
         break;
       default:
         return { allowed: true, current: 0, limit: -1, remaining: -1, tier };
@@ -295,18 +268,22 @@ export class SubscriptionManager {
         userId: this.userId,
         feature: operation,
         currentTier: tier,
-        targetTier: tier === 'FREE' ? 'PREMIUM' : 'PRO',
+        targetTier: 'PRO',
       });
     }
 
-    // Generate appropriate message
+    // Generate appropriate message - use weekly reset for extraction/conversion, monthly for scoring
+    const resetDate = operation === 'scoring'
+      ? currentUsage.monthlyResetDate
+      : currentUsage.weeklyResetDate;
+
     if (!allowed) {
       result.limitMessage = generateLimitMessage({
         operation,
         current,
         limit,
         tier,
-        resetDate: currentUsage.resetDate,
+        resetDate,
         upgradeUrl: result.upgradeUrl!,
       });
     } else {
@@ -326,18 +303,21 @@ export class SubscriptionManager {
    */
   getDefaultStatus(): SubscriptionStatus {
     const now = new Date();
-    const resetDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    // Weekly reset: next Monday
+    const weeklyReset = new Date(now);
+    weeklyReset.setDate(weeklyReset.getDate() + (8 - weeklyReset.getDay()) % 7 || 7);
+    // Monthly reset: first of next month
+    const monthlyReset = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
     return {
       tier: 'FREE',
       limits: TIER_LIMITS.FREE,
       currentUsage: {
-        notesThisMonth: 0,
-        extractionsThisMonth: 0,
-        conversionsThisMonth: 0,
         scoringThisMonth: 0,
-        totalNotesStored: 0,
-        resetDate: resetDate.toISOString(),
+        extractionsThisWeek: 0,
+        conversionsThisWeek: 0,
+        weeklyResetDate: weeklyReset.toISOString(),
+        monthlyResetDate: monthlyReset.toISOString(),
       },
     };
   }
@@ -346,24 +326,30 @@ export class SubscriptionManager {
    * Parse subscription status from backend response
    */
   parseBackendResponse(data: any): SubscriptionStatus {
-    const tier = (data.tier || data.subscriptionTier || 'FREE').toUpperCase() as SubscriptionTier;
-    const limits = TIER_LIMITS[tier] || TIER_LIMITS.FREE;
+    // Normalize tier - backend may return PREMIUM which is equivalent to PRO
+    let tier = (data.tier || data.subscriptionTier || 'FREE').toUpperCase();
+    if (tier === 'PREMIUM') tier = 'PRO';
+    const normalizedTier = tier as SubscriptionTier;
+    const limits = TIER_LIMITS[normalizedTier] || TIER_LIMITS.FREE;
 
-    // Calculate reset date (first of next month)
+    // Calculate reset dates
     const now = new Date();
-    const resetDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    // Weekly reset: next Monday
+    const weeklyReset = new Date(now);
+    weeklyReset.setDate(weeklyReset.getDate() + (8 - weeklyReset.getDay()) % 7 || 7);
+    // Monthly reset: first of next month
+    const monthlyReset = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
     return {
-      tier,
+      tier: normalizedTier,
       validUntil: data.validUntil || data.subscriptionExpiry,
       limits,
       currentUsage: {
-        notesThisMonth: data.usage?.notesThisMonth || data.notesThisMonth || 0,
-        extractionsThisMonth: data.usage?.extractionsThisMonth || data.extractionsThisMonth || 0,
-        conversionsThisMonth: data.usage?.conversionsThisMonth || data.conversionsThisMonth || 0,
         scoringThisMonth: data.usage?.scoringThisMonth || data.scoringThisMonth || 0,
-        totalNotesStored: data.usage?.totalNotesStored || data.totalNotesStored || 0,
-        resetDate: data.usage?.resetDate || data.resetDate || resetDate.toISOString(),
+        extractionsThisWeek: data.usage?.extractionsThisWeek || data.extractionsThisWeek || 0,
+        conversionsThisWeek: data.usage?.conversionsThisWeek || data.conversionsThisWeek || 0,
+        weeklyResetDate: data.usage?.weeklyResetDate || weeklyReset.toISOString(),
+        monthlyResetDate: data.usage?.monthlyResetDate || monthlyReset.toISOString(),
       },
     };
   }
