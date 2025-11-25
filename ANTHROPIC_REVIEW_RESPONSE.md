@@ -266,7 +266,7 @@ Created comprehensive contribution guidelines for the open-source repository:
 
 **Test Account**: PREMIUM tier (unlimited during review)
 
-**Upgrade**: [https://aidd.app/pricing](https://aidd.app/pricing)
+**Upgrade**: [https://aidd.app/upgrade](https://aidd.app/upgrade)
 
 ---
 

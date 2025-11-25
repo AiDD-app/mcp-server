@@ -387,7 +387,7 @@ curl https://mcp.aidd.app/.well-known/oauth-authorization-server
 | **PREMIUM** | 1,000 | 500 | 100 | 50 |
 | **PRO** | Unlimited | Unlimited | Unlimited | Unlimited |
 
-Upgrade at: [https://aidd.app/pricing](https://aidd.app/pricing)
+Upgrade at: [https://aidd.app/upgrade](https://aidd.app/upgrade)
 
 ---
 
@@ -503,7 +503,7 @@ A dedicated test account is available for Anthropic MCP review:
 
 ### "Rate Limit Exceeded"
 - Check quota with `status` tool
-- Upgrade subscription tier at [aidd.app/pricing](https://aidd.app/pricing)
+- Upgrade at [https://aidd.app/upgrade](https://aidd.app/upgrade)
 
 ---
 

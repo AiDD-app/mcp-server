@@ -127,7 +127,7 @@ Based on your subscription level:
 ### "Rate limit exceeded"
 - Check your subscription level
 - Wait for weekly reset (Monday)
-- Upgrade at aidd.app/pricing
+- Upgrade at aidd.app/upgrade
 
 ### "No credentials found"
 - Run `node sign-in.js` first

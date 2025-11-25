@@ -171,8 +171,9 @@ export function generateLimitMessage(params: {
   });
 
   // Determine recommended plan based on current tier
-  const recommendedPlan = tier === 'FREE' ? 'Premium' : 'Pro';
-  const recommendedPrice = tier === 'FREE' ? '$9.99/mo' : '$19.99/mo';
+  // Actual pricing: PRO Monthly $4.99/mo, PRO Annual $49.99/yr (save $10)
+  const recommendedPlan = 'Pro';
+  const recommendedPrice = '$4.99/mo or $49.99/yr';
 
   return `⚠️ **${tier} Tier Limit Reached**
 
