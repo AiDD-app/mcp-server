@@ -13,11 +13,21 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { AiDDBackendClient } from './aidd-backend-client.js';
 import { z } from 'zod';
+import {
+  SubscriptionManager,
+  SubscriptionStatus,
+  OperationType,
+  UsageCheckResult,
+} from './subscription-manager.js';
 
 export class AiDDMCPServer {
   private server: Server;
   private backendClient: AiDDBackendClient;
   private oauthToken?: string;
+  private subscriptionManager: SubscriptionManager;
+  private cachedSubscriptionStatus: SubscriptionStatus | null = null;
+  private subscriptionCacheExpiry: number = 0;
+  private readonly SUBSCRIPTION_CACHE_TTL_MS = 60000; // 1 minute cache
 
   constructor(oauthToken?: string) {
     this.oauthToken = oauthToken;
@@ -28,7 +38,7 @@ export class AiDDMCPServer {
     this.server = new Server(
       {
         name: 'AiDD',
-        version: '4.0.2',
+        version: '4.0.3',
         icons: [{
           src: `${BASE_URL}/icon.png`,
           mimeType: 'image/png',
@@ -47,6 +57,9 @@ export class AiDDMCPServer {
     this.backendClient = new AiDDBackendClient(oauthToken);
     console.log('✅ Backend client initialized');
 
+    this.subscriptionManager = new SubscriptionManager();
+    console.log('✅ Subscription manager initialized');
+
     this.setupHandlers();
     console.log('✅ Request handlers registered');
 
@@ -62,6 +75,69 @@ export class AiDDMCPServer {
     this.backendClient.on('error', (data) => {
       console.error(`Backend error: ${data.type} - ${data.error}`);
     });
+  }
+
+  // =============================================================================
+  // SUBSCRIPTION & USAGE LIMIT CHECKING
+  // =============================================================================
+
+  /**
+   * Get cached or fresh subscription status
+   */
+  private async getSubscriptionStatus(): Promise<SubscriptionStatus> {
+    const now = Date.now();
+
+    // Return cached status if still valid
+    if (this.cachedSubscriptionStatus && now < this.subscriptionCacheExpiry) {
+      return this.cachedSubscriptionStatus;
+    }
+
+    try {
+      const backendResponse = await this.backendClient.getSubscriptionStatus();
+      this.cachedSubscriptionStatus = this.subscriptionManager.parseBackendResponse(backendResponse);
+      this.subscriptionCacheExpiry = now + this.SUBSCRIPTION_CACHE_TTL_MS;
+
+      // Update subscription manager with user ID
+      const userId = this.backendClient.getUserId();
+      if (userId) {
+        this.subscriptionManager = new SubscriptionManager(userId);
+      }
+
+      return this.cachedSubscriptionStatus;
+    } catch (error) {
+      console.error('[MCP] Failed to get subscription status:', error);
+      return this.subscriptionManager.getDefaultStatus();
+    }
+  }
+
+  /**
+   * Check if an AI operation is allowed and return appropriate response
+   */
+  private async checkOperationLimit(operation: OperationType): Promise<UsageCheckResult> {
+    const status = await this.getSubscriptionStatus();
+    return this.subscriptionManager.checkUsage(operation, status);
+  }
+
+  /**
+   * Format a limit reached response for the user
+   */
+  private formatLimitReachedResponse(usageCheck: UsageCheckResult): { content: TextContent[] } {
+    return {
+      content: [{
+        type: 'text',
+        text: usageCheck.limitMessage || `You've reached your ${usageCheck.tier} tier limit for this operation.`,
+      } as TextContent],
+    };
+  }
+
+  /**
+   * Append usage warning to response if applicable
+   */
+  private appendUsageWarning(responseText: string, usageCheck: UsageCheckResult): string {
+    if (usageCheck.warningMessage) {
+      return responseText + '\n\n---\n' + usageCheck.warningMessage;
+    }
+    return responseText;
   }
 
   private setupHandlers() {
@@ -584,6 +660,12 @@ ${item.description || 'No description'}
 
   private async handleExtractActionItems(args: any) {
     try {
+      // Check usage limits before processing
+      const usageCheck = await this.checkOperationLimit('extraction');
+      if (!usageCheck.allowed) {
+        return this.formatLimitReachedResponse(usageCheck);
+      }
+
       const { source, noteIds, text, extractionMode = 'adhd-optimized' } = args;
 
       let notesToProcess: any[] = [];
@@ -613,7 +695,7 @@ ${item.description || 'No description'}
 
       const actionItems = await this.backendClient.extractActionItems(notesToProcess);
 
-      const response = `
+      let response = `
 🔍 **Action Items Extracted**
 
 **Summary:**
@@ -634,6 +716,9 @@ ${actionItems.length > 10 ? `\n... and ${actionItems.length - 10} more items` : 
 
 Action items have been saved to your AiDD account.
       `;
+
+      // Append usage warning if approaching limit
+      response = this.appendUsageWarning(response, usageCheck);
 
       return {
         content: [{
@@ -747,6 +832,12 @@ ${task.dependsOnTaskOrders && task.dependsOnTaskOrders.length > 0 ?
 
   private async handleConvertToTasks(args: any) {
     try {
+      // Check usage limits before processing
+      const usageCheck = await this.checkOperationLimit('conversion');
+      if (!usageCheck.allowed) {
+        return this.formatLimitReachedResponse(usageCheck);
+      }
+
       const { actionItemIds, breakdownMode = 'adhd-optimized' } = args;
 
       let actionItems: any[] = [];
@@ -764,7 +855,7 @@ ${task.dependsOnTaskOrders && task.dependsOnTaskOrders.length > 0 ?
 
       const tasks = await this.backendClient.convertToTasks(actionItems);
 
-      const response = `
+      let response = `
 ✨ **Tasks Created (ADHD-Optimized)**
 
 **Summary:**
@@ -793,6 +884,9 @@ ${tasks.length > 15 ? `\n... and ${tasks.length - 15} more tasks` : ''}
 Tasks have been saved to your AiDD account.
       `;
 
+      // Append usage warning if approaching limit
+      response = this.appendUsageWarning(response, usageCheck);
+
       return {
         content: [{
           type: 'text',
@@ -811,6 +905,12 @@ Tasks have been saved to your AiDD account.
 
   private async handleScoreTasks(args: any) {
     try {
+      // Check usage limits before processing
+      const usageCheck = await this.checkOperationLimit('scoring');
+      if (!usageCheck.allowed) {
+        return this.formatLimitReachedResponse(usageCheck);
+      }
+
       const { considerCurrentEnergy = true, timeOfDay = 'auto' } = args;
 
       // Get all tasks
@@ -824,7 +924,7 @@ Tasks have been saved to your AiDD account.
 
       const actualTimeOfDay = timeOfDay === 'auto' ? this.getTimeOfDay() : timeOfDay;
 
-      const response = `
+      let response = `
 🎯 **Tasks Scored & Prioritized**
 
 **Summary:**
@@ -854,6 +954,9 @@ ${scoredTasks.filter((t: any) => t.factors && t.factors.effort < 4).slice(0, 3).
 
 All tasks have been scored and saved to your AiDD account.
       `;
+
+      // Append usage warning if approaching limit
+      response = this.appendUsageWarning(response, usageCheck);
 
       return {
         content: [{

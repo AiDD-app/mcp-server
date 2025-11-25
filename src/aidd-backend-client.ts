@@ -1017,6 +1017,55 @@ export class AiDDBackendClient extends EventEmitter {
   // =============================================================================
 
   /**
+   * Get subscription status including usage limits
+   */
+  async getSubscriptionStatus(): Promise<any> {
+    if (!this.deviceToken) {
+      await this.authenticate();
+    }
+
+    try {
+      const headers = await this.getAuthHeaders();
+      const response = await fetch(`${this.baseUrl}/api/subscription/status`, {
+        method: 'GET',
+        headers,
+      });
+
+      if (!response.ok) {
+        // Return default free tier if subscription endpoint not available
+        console.warn(`[MCP] Subscription status unavailable: ${response.statusText}`);
+        return this.getDefaultSubscriptionStatus();
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('[MCP] Error fetching subscription status:', error);
+      return this.getDefaultSubscriptionStatus();
+    }
+  }
+
+  /**
+   * Get default subscription status (FREE tier with zero usage)
+   */
+  private getDefaultSubscriptionStatus(): any {
+    const now = new Date();
+    const resetDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+    return {
+      tier: 'FREE',
+      usage: {
+        notesThisMonth: 0,
+        extractionsThisMonth: 0,
+        conversionsThisMonth: 0,
+        scoringThisMonth: 0,
+        totalNotesStored: 0,
+        resetDate: resetDate.toISOString(),
+      },
+    };
+  }
+
+  /**
    * Get backend health status
    */
   async checkHealth(): Promise<boolean> {
@@ -1027,5 +1076,12 @@ export class AiDDBackendClient extends EventEmitter {
     } catch (error) {
       return false;
     }
+  }
+
+  /**
+   * Get user ID (for subscription tracking)
+   */
+  getUserId(): string | undefined {
+    return this.userId;
   }
 }
