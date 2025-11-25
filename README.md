@@ -3,7 +3,7 @@
 **Official AiDD MCP Web Connector** - ADHD-optimized productivity platform accessible from Claude web, mobile, and desktop.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-4.0.0-blue.svg)](https://github.com/aidd-app/mcp-server)
+[![Version](https://img.shields.io/badge/version-4.0.2-blue.svg)](https://github.com/aidd-app/mcp-server)
 
 ## 🌐 Universal Access
 
@@ -72,31 +72,262 @@ You: score my tasks and tell me what to work on next
 Claude: [AI analyzes and prioritizes your tasks]
 ```
 
+---
+
+## 📚 Realistic Usage Examples
+
+### Example 1: Morning Task Planning with Energy Levels
+
+**Scenario**: You want to plan your workday based on your current energy level.
+
+```
+You: "I just woke up and have high energy. What should I work on this morning?"
+
+Claude: [Uses score_tasks with timeOfDay="morning", considerCurrentEnergy=true]
+
+Response:
+🎯 Tasks Scored & Prioritized
+
+Top Priority Tasks (Next 2 Hours):
+1. Complete quarterly performance reviews (Score: 95/100)
+   • Urgency: 9/10
+   • Importance: 9/10
+   • Energy Match: High ✓
+   📝 Best tackled now while your focus is sharp
+
+2. Draft project proposal for Q2 (Score: 89/100)
+   • Urgency: 7/10
+   • Importance: 9/10
+   • Time: 45 min
+   📝 Complex task - ideal for morning energy
+
+🌅 Morning Schedule (High Energy):
+  • Complete quarterly performance reviews
+  • Draft project proposal for Q2
+  • Review architecture decisions
+```
+
+### Example 2: Meeting Notes to Action Items
+
+**Scenario**: You just finished a team meeting and have raw notes to process.
+
+```
+You: "I just finished a team meeting. Here are my notes:
+     - John will send the budget report by Friday
+     - Need to schedule client demo for next week
+     - Sarah mentioned the API is having issues, investigate
+     - Book conference room for quarterly planning
+     - Follow up with marketing on campaign results"
+
+Claude: [Uses extract_action_items with source="text"]
+
+Response:
+🔍 Action Items Extracted
+
+Summary:
+• Source: provided text
+• Extraction mode: adhd-optimized
+• Action items found: 5
+
+Extracted Action Items:
+1. Follow up on budget report from John
+   • Priority: high
+   • Category: work
+   • Confidence: 92%
+   • Due: Friday
+
+2. Schedule client demo
+   • Priority: high
+   • Category: work
+   • Confidence: 95%
+   • Due: Next week
+
+3. Investigate API issues
+   • Priority: high
+   • Category: work
+   • Confidence: 88%
+   • Tags: technical, bug
+
+4. Book conference room for quarterly planning
+   • Priority: medium
+   • Category: work
+   • Confidence: 90%
+
+5. Follow up with marketing on campaign results
+   • Priority: medium
+   • Category: work
+   • Confidence: 87%
+
+Action items have been saved to your AiDD account.
+```
+
+### Example 3: Converting Action Items to ADHD-Friendly Tasks
+
+**Scenario**: You have action items but need them broken down into manageable steps.
+
+```
+You: "Convert my action items to tasks with ADHD-optimized breakdown"
+
+Claude: [Uses convert_to_tasks with breakdownMode="adhd-optimized"]
+
+Response:
+✨ Tasks Created (ADHD-Optimized)
+
+Summary:
+• Action items converted: 5
+• Tasks created: 14
+• Average tasks per item: 2.8
+
+Created Tasks:
+1. Send reminder email to John about budget report
+   • Time: 5 min
+   • Energy: low
+   • Type: quick_win
+   📝 Start here for momentum!
+
+2. Check John's response and review budget numbers
+   • Time: 15 min
+   • Energy: medium
+   • Type: review
+   • Depends on: Task 1
+
+3. Look up client's preferred meeting times
+   • Time: 10 min
+   • Energy: low
+   • Type: administrative
+
+4. Send calendar invite for client demo
+   • Time: 5 min
+   • Energy: low
+   • Type: quick_win
+   • Depends on: Task 3
+
+5. Check API error logs in monitoring dashboard
+   • Time: 15 min
+   • Energy: medium
+   • Type: investigation
+
+Task Breakdown:
+• Quick wins: 4 (start here!)
+• Focus required: 3
+• Administrative: 4
+• Investigation: 2
+• Review: 1
+```
+
+### Example 4: Weekly Review and Planning
+
+**Scenario**: End of week review to see accomplishments and plan ahead.
+
+```
+You: "Help me do a weekly review. Show me what I accomplished and what's pending for next week."
+
+Claude: [Uses list_tasks, list_action_items, then score_tasks]
+
+Response:
+📊 Weekly Review
+
+✅ Completed This Week:
+• 12 tasks completed
+• 8 action items resolved
+• Highlights:
+  - Finished quarterly report (Score: 95)
+  - Deployed API fix (Score: 88)
+  - Client presentation delivered (Score: 92)
+
+📋 Pending Action Items (7):
+• High Priority: 2
+• Medium Priority: 4
+• Low Priority: 1
+
+🎯 Next Week's Top Priorities:
+1. Prepare board presentation (Score: 94/100)
+   • Due: Tuesday
+   • Energy: High required
+   • Time: 2 hours
+
+2. Complete performance reviews (Score: 91/100)
+   • Due: Friday
+   • Energy: Medium
+   • Time: 45 min each
+
+3. Follow up on vendor contracts (Score: 85/100)
+   • Due: Wednesday
+   • Energy: Low
+   • Time: 30 min
+
+💡 Recommendation: Block Tuesday morning for the board
+presentation while your energy is highest.
+```
+
+### Example 5: Creating and Organizing Notes
+
+**Scenario**: You want to capture ideas and organize them properly.
+
+```
+You: "Create a note titled 'Product Roadmap Ideas' with these thoughts:
+     - Mobile app redesign for better accessibility
+     - Integration with Slack for notifications
+     - AI-powered task suggestions based on calendar
+     - Dark mode support
+     Tag it with 'product' and 'planning', category work"
+
+Claude: [Uses create_note with title, content, tags, category]
+
+Response:
+✅ Note Created
+
+Title: Product Roadmap Ideas
+ID: note_a1b2c3d4
+Category: work
+Tags: product, planning
+
+Content:
+- Mobile app redesign for better accessibility
+- Integration with Slack for notifications
+- AI-powered task suggestions based on calendar
+- Dark mode support
+
+The note has been saved to your AiDD account.
+
+💡 Tip: Say "extract action items from my Product Roadmap Ideas note"
+to turn these ideas into trackable tasks!
+```
+
+---
+
 ## Available Tools
 
-### Authentication
-- `connect` - Sign in via browser OAuth
-- `disconnect` - Sign out
-- `status` - Check authentication status
-- `check_backend_health` - Verify backend connectivity
+### Notes (3 tools)
+| Tool | Description | Read-Only |
+|------|-------------|-----------|
+| `list_notes` | Browse notes (sortBy: createdAt/updatedAt/title) | ✅ |
+| `read_note` | Read specific note by ID | ✅ |
+| `create_note` | Create new note with title, content, tags, category | ❌ |
 
-### Notes
-- `list_notes` - Browse notes (sortBy: createdAt/updatedAt/title)
-- `read_note(noteId)` - Read specific note
-- `create_note(title, content, tags?, category?)` - Create new note
+### Action Items (3 tools)
+| Tool | Description | Read-Only |
+|------|-------------|-----------|
+| `list_action_items` | Browse action items with sorting | ✅ |
+| `read_action_item` | Read specific action item by ID | ✅ |
+| `extract_action_items` | AI-powered extraction from notes or text | ❌ |
 
-### Action Items
-- `list_action_items` - Browse action items
-- `read_action_item(id)` - Read details
-- `extract_action_items(source, noteIds?, text?)` - AI extraction
-  - From notes: `source="notes", noteIds=["id1", "id2"]`
-  - From text: `source="text", text="Your content..."`
+### Tasks (4 tools)
+| Tool | Description | Read-Only |
+|------|-------------|-----------|
+| `list_tasks` | Browse tasks with AI scores | ✅ |
+| `read_task` | Read specific task by ID | ✅ |
+| `convert_to_tasks` | Convert action items to ADHD-optimized tasks | ❌ |
+| `score_tasks` | AI-powered task prioritization | ❌ |
 
-### Tasks
-- `list_tasks` - Browse tasks (sortBy: score/dueDate/createdAt)
-- `read_task(taskId)` - Read task details
-- `convert_to_tasks(actionItemIds?)` - AI task breakdown
-- `score_tasks(considerCurrentEnergy?, timeOfDay?)` - AI prioritization
+### Authentication (1 tool)
+| Tool | Description | Read-Only |
+|------|-------------|-----------|
+| `status` | Check authentication status and account info | ✅ |
+
+**Total**: 11 tools (7 read-only, 4 write, 0 destructive)
+
+---
 
 ## Architecture
 
@@ -114,29 +345,39 @@ Claude: [AI analyzes and prioritizes your tasks]
          │ REST API
          ↓
 ┌─────────────────┐
-│   AiDD Backend  │ Cloud Run (production)
+│   AiDD Backend  │ Cloud Run (production HA)
 │   - Firestore   │ - Notes, Tasks, Action Items
 │   - Redis       │ - Sessions, Cache
-│   - Gemini AI  │ - Extraction, Conversion, Scoring
+│   - Gemini AI   │ - Extraction, Conversion, Scoring
 └─────────────────┘
 ```
 
 ### Tech Stack
 - **Runtime**: Node.js 20
 - **Framework**: Express.js
-- **Protocol**: MCP over HTTP/SSE
+- **Protocol**: MCP over HTTP/SSE (Streamable HTTP Transport)
 - **Transport**: Server-Sent Events
-- **Auth**: OAuth 2.0 + JWT
-- **AI**: Google Gemini (pro & flash)
+- **Auth**: OAuth 2.0 with PKCE (S256)
+- **AI**: Google Gemini 3 Pro Preview & 2.5 Flash
+
+---
 
 ## Testing the Connector
 
 You can verify the connector is running:
 
 ```bash
+# Health check
 curl https://mcp.aidd.app/health
-curl https://mcp.aidd.app/
+
+# MCP endpoint info
+curl https://mcp.aidd.app/mcp
+
+# OAuth discovery
+curl https://mcp.aidd.app/.well-known/oauth-authorization-server
 ```
+
+---
 
 ## Subscription Tiers
 
@@ -148,82 +389,140 @@ curl https://mcp.aidd.app/
 
 Upgrade at: [https://aidd.app/pricing](https://aidd.app/pricing)
 
+---
+
 ## Security & Privacy
 
-### Data Protection
-- ✅ OAuth 2.0 with PKCE flow
-- ✅ JWT tokens with auto-refresh
-- ✅ HTTPS/TLS for all communication
-- ✅ CORS locked to Claude domains
-- ✅ Data encrypted at rest & in transit
-- ✅ Rate limiting per subscription tier
-- ✅ No third-party data sharing
+### Authentication & Data Protection
 
-### Your Privacy Matters
+| Feature | Implementation |
+|---------|---------------|
+| OAuth 2.0 | Authorization Code Flow with PKCE (S256) |
+| Token Security | JWT with 30-day expiry, auto-refresh |
+| Transport | HTTPS/TLS 1.3 for all communication |
+| CORS | Restricted to `claude.ai`, `*.claude.ai`, `*.anthropic.com` |
+| Data at Rest | AES-256 encryption (Google Cloud) |
+| Rate Limiting | Token bucket algorithm per subscription tier |
+| Request Signing | HMAC verification for API calls |
+
+### Compliance
+
+| Standard | Status |
+|----------|--------|
+| **GDPR** | ✅ Full compliance (EU data protection) |
+| **CCPA** | ✅ Full compliance (California privacy) |
+| **SOC 2 Type II** | ✅ Certified infrastructure (Google Cloud) |
+
+### Privacy Policy
 
 AiDD processes your notes, tasks, and action items to provide AI-powered productivity features. We take your privacy seriously:
 
-- **No AI Training**: Your data is never used to train AI models (including Google Gemini)
-- **Data Control**: Full GDPR compliance with data export and deletion rights
-- **Secure Storage**: All data encrypted and stored on Google Cloud Platform
-- **Minimal Processing**: AI processing happens on-demand, data is not retained beyond necessary operations
-- **Transparent Usage**: Clear documentation of what data is processed and why
+#### What We Collect
+- **Account Information**: Email address, authentication tokens
+- **Content Data**: Notes, action items, tasks you create or import
+- **Usage Data**: Feature usage for improving the service (anonymized)
+
+#### How We Use Your Data
+- **AI Processing**: Notes → Action items → Tasks (on-demand only)
+- **Storage**: Encrypted in your personal account
+- **Analytics**: Anonymized usage patterns (opt-out available)
+
+#### What We DON'T Do
+- ❌ **No AI Training**: Your data is NEVER used to train AI models (including Google Gemini)
+- ❌ **No Selling**: Your data is NEVER sold to third parties
+- ❌ **No Advertising**: No targeted ads based on your content
+- ❌ **No Retention**: AI processing is ephemeral, not stored in AI systems
+
+#### Your Rights
+- **Access**: Export all your data at any time
+- **Deletion**: Request complete data deletion (GDPR Article 17)
+- **Portability**: Download your data in standard formats
+- **Correction**: Update or correct your information
+- **Objection**: Opt-out of non-essential processing
+
+#### Data Processing Details
+
+| Data Type | Processing | Retention | AI Involvement |
+|-----------|------------|-----------|----------------|
+| Notes | Stored encrypted | Until deleted | Extraction only (not stored in AI) |
+| Action Items | Generated by AI | Until deleted | Created by Gemini, stored in your account |
+| Tasks | AI-scored | Until deleted | Scores calculated on-demand |
+| Auth Tokens | OAuth 2.0 | 30 days | None |
+| Passwords | NOT stored | N/A | None (OAuth only) |
+
+#### Security Measures
+- 🔐 End-to-end encryption for sensitive data
+- 🔒 Secrets management via Google Secret Manager
+- 🛡️ DDoS protection via Cloud Armor
+- 📝 Audit logging with 30-day retention
+- 🔍 Regular security audits and penetration testing
 
 **📋 Full Privacy Policy**: [https://aidd.app/privacy](https://aidd.app/privacy)
+**📜 Terms of Service**: [https://aidd.app/terms](https://aidd.app/terms)
 
-**🔒 Data Processing Details**:
-- Notes content: Processed for AI extraction, never stored in AI systems
-- Action items: Generated by AI, stored encrypted in your account
-- Tasks: AI-scored for prioritization, scores stored with task data
-- Authentication: OAuth tokens stored securely, no passwords retained
+---
+
+## For Anthropic Reviewers
+
+### Test Account
+
+A dedicated test account is available for Anthropic MCP review:
+
+| Field | Value |
+|-------|-------|
+| Email | `[TEST_EMAIL_REDACTED]` |
+| Password | `REDACTED` |
+| Subscription | PREMIUM (unlimited) |
+| Status | ✅ Active |
+
+**Full testing instructions**: [TEST_CREDENTIALS.md](TEST_CREDENTIALS.md)
+
+### Pre-loaded Test Data
+- **16 Notes** - Various categories and tags
+- **13 Action Items** - Mixed priorities with confidence scores
+- **13 Tasks** - All with AI scores (relevance, impact, urgency)
+
+### Support During Review
+- **Email**: marc@aidd.app
+- **Subject**: "Anthropic MCP Review - [Issue]"
+- **Response Time**: < 2 hours (9am-6pm PST)
+
+---
 
 ## Troubleshooting
 
 ### "Connection Failed"
 1. Check health: `curl https://mcp.aidd.app/health`
-2. Verify you're using the correct URL: `https://mcp.aidd.app/mcp`
-3. Try removing and re-adding the connector in Claude settings
+2. Verify URL: `https://mcp.aidd.app/mcp`
+3. Try removing and re-adding the connector
 
 ### "Authentication Error"
-1. Use `connect` tool in Claude
-2. Allow popup windows
-3. Try incognito mode (clear cookies)
+1. Browser popup blocked? Allow popups for claude.ai
+2. Try incognito mode (clear cookies)
+3. Check if test account credentials are correct
 
 ### "Rate Limit Exceeded"
-- Upgrade subscription tier
-- Check quota: `status` tool shows limits
+- Check quota with `status` tool
+- Upgrade subscription tier at [aidd.app/pricing](https://aidd.app/pricing)
+
+---
 
 ## Why Web Connector?
 
 **vs Desktop Extension:**
-- ❌ Desktop: macOS/Windows/Linux only, local install required
-- ✅ Web: Works everywhere (mobile, web, desktop)
+| Feature | Desktop | Web Connector |
+|---------|---------|---------------|
+| Platforms | macOS/Windows/Linux only | All platforms |
+| Installation | Local install required | Just add URL |
+| Updates | Manual | Automatic |
+| Mobile | ❌ | ✅ |
 
 **vs Separate MCPs:**
-- You can combine AiDD with other MCP connectors
-- Example: Use with [Apple Notes MCP](https://github.com/gongrzhe/claude-apple-notes-mcp) for macOS users
+- Combine AiDD with other MCP connectors
+- Example: Use with [Apple Notes MCP](https://github.com/gongrzhe/claude-apple-notes-mcp) for macOS
 - Claude orchestrates between multiple MCPs automatically
 
-## Combining with Apple Notes MCP
-
-**For macOS users who want Apple Notes integration:**
-
-1. Install AiDD MCP (web connector - this repo)
-2. Install [Apple Notes MCP](https://github.com/gongrzhe/claude-apple-notes-mcp) (desktop-only)
-
-Then Claude can orchestrate:
-
-```
-You: Import my Apple Notes into AiDD and prioritize them
-
-Claude will:
-1. Use Apple Notes MCP to read your notes (macOS)
-2. Use AiDD MCP to save them to your account (web)
-3. Use AiDD MCP's AI to extract action items (web)
-4. Use AiDD MCP's AI to prioritize tasks (web)
-```
-
-This modular approach keeps AiDD cross-platform while allowing optional platform-specific features.
+---
 
 ## Support
 
@@ -240,7 +539,15 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md)
 
 MIT © AiDD Team
 
+---
+
 ## Changelog
+
+### v4.0.2 (2025-11-24)
+- 📚 **Docs**: Added 5 realistic usage examples for Anthropic review
+- 🔒 **Privacy**: Enhanced privacy policy section with full details inline
+- 🐛 **Fix**: AI scores display (relevance, impact, urgency)
+- 🐛 **Fix**: Task scoring deviceId requirement
 
 ### v4.0.0 (2025-01-22) - Web Connector Edition
 - 🌐 **Breaking**: Transitioned from stdio to HTTP/SSE transport
