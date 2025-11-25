@@ -246,7 +246,7 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     service: 'AiDD MCP Web Connector',
-    version: '4.0.1',
+    version: '4.0.2',
     timestamp: new Date().toISOString(),
   });
 });
@@ -305,7 +305,7 @@ app.get('/', (req, res) => {
   res.setHeader('X-MCP-Transport', 'sse');
   res.json({
     name: 'AiDD MCP Web Connector',
-    version: '4.0.1',
+    version: '4.0.2',
     description: 'ADHD-optimized productivity platform with AI-powered task management',
     icon: `${BASE_URL}/icon.png`,
     endpoints: {
@@ -342,7 +342,7 @@ app.get('/mcp', (req, res) => {
   res.setHeader('X-MCP-Transport', 'sse');
   res.json({
     name: 'AiDD',
-    version: '4.0.1',
+    version: '4.0.2',
     protocol: 'mcp',
     protocolVersion: '2024-11-05',
     transport: 'sse',
@@ -471,7 +471,7 @@ app.listen(PORT, () => {
 ║                                                            ║
 ║   🚀 AiDD MCP Web Connector                               ║
 ║                                                            ║
-║   Version: 4.0.0                                          ║
+║   Version: 4.0.2                                          ║
 ║   Port: ${PORT}                                              ║
 ║   Mode: Web Connector (HTTP/SSE + OAuth)                  ║
 ║                                                            ║
