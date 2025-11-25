@@ -28,7 +28,7 @@ export class AiDDMCPServer {
     this.server = new Server(
       {
         name: 'AiDD',
-        version: '4.0.1',
+        version: '4.0.2',
         icons: [{
           src: `${BASE_URL}/icon.png`,
           mimeType: 'image/png',
