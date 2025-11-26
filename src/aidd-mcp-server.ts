@@ -184,6 +184,8 @@ export class AiDDMCPServer {
             return await this.handleUpdateTask(args);
           case 'delete_tasks':
             return await this.handleDeleteTasks(args);
+          case 'aidd_overview_tutorial':
+            return await this.handleOverviewTutorial(args);
           default:
             throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
         }
@@ -437,6 +439,25 @@ export class AiDDMCPServer {
           required: ['taskIds'],
         },
       },
+      {
+        name: 'aidd_overview_tutorial',
+        description: 'Get a comprehensive overview of AiDD MCP tools and an interactive hands-on tutorial. Use this to learn what AiDD can do and how to use it effectively for ADHD-optimized productivity.',
+        annotations: { readOnlyHint: true },
+        inputSchema: {
+          type: 'object',
+          properties: {
+            mode: {
+              type: 'string',
+              enum: ['overview', 'tutorial', 'quick_start', 'workflow_examples'],
+              description: 'Content mode: overview (all tools explained), tutorial (step-by-step walkthrough), quick_start (fastest way to get productive), workflow_examples (real-world usage patterns). Default: overview'
+            },
+            tutorialStep: {
+              type: 'number',
+              description: 'For tutorial mode: which step to show (1-7). Leave empty to see all steps.'
+            },
+          },
+        },
+      },
     ];
   }
 
@@ -452,7 +473,12 @@ export class AiDDMCPServer {
     try {
       let notes = await this.backendClient.listNotes(args);
       notes = await this.enrichNotesWithExtractedActionItems(notes);
-      const response = `📝 **Notes Retrieved**\n\n**Total notes:** ${notes.length}\n\n${notes.slice(0, 10).map((note: any, i: number) => `${i + 1}. **${note.title}**\n   • ID: ${note.id}\n   • Category: ${note.category || 'personal'}\n   • Created: ${new Date(note.createdAt).toLocaleDateString()}\n   ${note.tags && note.tags.length > 0 ? `• Tags: ${note.tags.join(', ')}` : ''}`).join('\n')}\n${notes.length > 10 ? `\n... and ${notes.length - 10} more notes` : ''}`;
+      const response = `📝 **Notes Retrieved**\n\n**Total notes:** ${notes.length}\n\n${notes.slice(0, 10).map((note: any, i: number) => {
+        const extractedInfo = (note as any).extractedActionItemCount > 0
+          ? `• Extracted Action Items: ${(note as any).extractedActionItemCount}`
+          : '';
+        return `${i + 1}. **${note.title}**\n   • ID: ${note.id}\n   • Category: ${note.category || 'personal'}\n   • Created: ${new Date(note.createdAt).toLocaleDateString()}\n   ${note.tags && note.tags.length > 0 ? `• Tags: ${note.tags.join(', ')}\n   ` : ''}${extractedInfo}`;
+      }).join('\n')}\n${notes.length > 10 ? `\n... and ${notes.length - 10} more notes` : ''}`;
       return { content: [{ type: 'text', text: response } as TextContent] };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error listing notes: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
@@ -465,7 +491,10 @@ export class AiDDMCPServer {
       // Enrich with extracted action items
       const enriched = await this.enrichNotesWithExtractedActionItems([note]);
       note = enriched[0];
-      const response = `📄 **Note Details**\n\n**Title:** ${note.title}\n**ID:** ${note.id}\n**Category:** ${note.category || 'personal'}\n**Created:** ${new Date(note.createdAt).toLocaleDateString()}\n${note.tags && note.tags.length > 0 ? `**Tags:** ${note.tags.join(', ')}` : ''}\n\n**Content:**\n${note.content}`;
+      const extractedActionItemsSection = (note as any).extractedActionItems && (note as any).extractedActionItems.length > 0
+        ? `\n\n**Extracted Action Items (${(note as any).extractedActionItemCount}):**\n${(note as any).extractedActionItems.map((item: any, i: number) => `${i + 1}. **${item.title}**\n   • Action Item ID: ${item.id}\n   • Priority: ${item.priority}\n   • Category: ${item.category}`).join('\n')}`
+        : '';
+      const response = `📄 **Note Details**\n\n**Title:** ${note.title}\n**ID:** ${note.id}\n**Category:** ${note.category || 'personal'}\n**Created:** ${new Date(note.createdAt).toLocaleDateString()}\n${note.tags && note.tags.length > 0 ? `**Tags:** ${note.tags.join(', ')}\n` : ''}\n**Content:**\n${note.content}${extractedActionItemsSection}`;
       return { content: [{ type: 'text', text: response } as TextContent] };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error reading note: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
@@ -486,7 +515,13 @@ export class AiDDMCPServer {
     try {
       let actionItems = await this.backendClient.listActionItems(args);
       actionItems = await this.enrichActionItemsWithDerivedTasks(actionItems);
-      const response = `📋 **Action Items Retrieved**\n\n**Total action items:** ${actionItems.length}\n\n${actionItems.slice(0, 10).map((item: any, i: number) => `${i + 1}. **${item.title}**\n   • ID: ${item.id}\n   • Priority: ${item.priority}\n   • Category: ${item.category}\n   ${item.dueDate ? `• Due: ${new Date(item.dueDate).toLocaleDateString()}` : ''}\n   ${item.tags && item.tags.length > 0 ? `• Tags: ${item.tags.join(', ')}` : ''}`).join('\n')}\n${actionItems.length > 10 ? `\n... and ${actionItems.length - 10} more items` : ''}`;
+      const response = `📋 **Action Items Retrieved**\n\n**Total action items:** ${actionItems.length}\n\n${actionItems.slice(0, 10).map((item: any, i: number) => {
+        const derivedTasksInfo = item.derivedTaskCount > 0
+          ? `• Derived Tasks: ${item.derivedTaskCount} task(s) created`
+          : '';
+        const sourceNoteInfo = item.sourceNoteId ? `• Source Note ID: ${item.sourceNoteId}` : '';
+        return `${i + 1}. **${item.title}**\n   • ID: ${item.id}\n   • Priority: ${item.priority}\n   • Category: ${item.category}\n   ${item.dueDate ? `• Due: ${new Date(item.dueDate).toLocaleDateString()}\n   ` : ''}${item.tags && item.tags.length > 0 ? `• Tags: ${item.tags.join(', ')}\n   ` : ''}${derivedTasksInfo ? `${derivedTasksInfo}\n   ` : ''}${sourceNoteInfo}`;
+      }).join('\n')}\n${actionItems.length > 10 ? `\n... and ${actionItems.length - 10} more items` : ''}`;
       return { content: [{ type: 'text', text: response } as TextContent] };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error listing action items: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
@@ -499,7 +534,13 @@ export class AiDDMCPServer {
       // Enrich with derived tasks
       const enriched = await this.enrichActionItemsWithDerivedTasks([item]);
       item = enriched[0];
-      const response = `📋 **Action Item Details**\n\n**Title:** ${item.title}\n**ID:** ${item.id}\n**Priority:** ${item.priority}\n**Category:** ${item.category}\n${item.dueDate ? `**Due Date:** ${new Date(item.dueDate).toLocaleDateString()}` : ''}\n${item.tags && item.tags.length > 0 ? `**Tags:** ${item.tags.join(', ')}` : ''}\n\n**Description:**\n${item.description || 'No description'}`;
+      const derivedTasksSection = (item as any).derivedTasks && (item as any).derivedTasks.length > 0
+        ? `\n\n**Derived Tasks (${(item as any).derivedTaskCount}):**\n${(item as any).derivedTasks.map((task: any, i: number) => `${i + 1}. **${task.title}**\n   • Task ID: ${task.id}\n   ${task.estimatedTime ? `• Est. Time: ${task.estimatedTime} min` : ''}\n   ${task.energyRequired ? `• Energy: ${task.energyRequired}` : ''}`).join('\n')}`
+        : '';
+      const sourceNoteSection = item.sourceNoteId
+        ? `\n**Source Note ID:** ${item.sourceNoteId}`
+        : '';
+      const response = `📋 **Action Item Details**\n\n**Title:** ${item.title}\n**ID:** ${item.id}\n**Priority:** ${item.priority}\n**Category:** ${item.category}\n${item.dueDate ? `**Due Date:** ${new Date(item.dueDate).toLocaleDateString()}\n` : ''}${item.tags && item.tags.length > 0 ? `**Tags:** ${item.tags.join(', ')}\n` : ''}${sourceNoteSection}\n\n**Description:**\n${item.description || 'No description'}${derivedTasksSection}`;
       return { content: [{ type: 'text', text: response } as TextContent] };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error reading action item: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
@@ -663,7 +704,8 @@ export class AiDDMCPServer {
       const response = `✅ **Tasks Retrieved**\n\n**Total tasks:** ${tasks.length}\n\n${tasks.slice(0, 10).map((task: any, i: number) => {
         const hasScores = task.relevanceScore !== undefined && task.impactScore !== undefined && task.urgencyScore !== undefined;
         const overallScore = hasScores ? ((task.relevanceScore + task.impactScore + task.urgencyScore) / 3 * 100).toFixed(0) : undefined;
-        return `${i + 1}. **${task.title}**\n   • ID: ${task.id}\n   ${task.hasBeenAIScored && overallScore ? `• Overall AI Score: ${overallScore}%` : ''}\n   ${task.relevanceScore !== undefined ? `• Relevance: ${(task.relevanceScore * 100).toFixed(0)}%` : ''}\n   ${task.impactScore !== undefined ? `• Impact: ${(task.impactScore * 100).toFixed(0)}%` : ''}\n   ${task.urgencyScore !== undefined ? `• Urgency: ${(task.urgencyScore * 100).toFixed(0)}%` : ''}\n   ${task.estimatedTime ? `• Time: ${task.estimatedTime} min` : ''}\n   ${task.energyRequired ? `• Energy: ${task.energyRequired}` : ''}\n   ${task.dueDate ? `• Due: ${new Date(task.dueDate).toLocaleDateString()}` : ''}`;
+        const sourceInfo = task.sourceActionItem ? `• Source Action Item: ${task.sourceActionItem.title} (ID: ${task.actionItemId})` : (task.actionItemId ? `• Source Action Item ID: ${task.actionItemId}` : '');
+        return `${i + 1}. **${task.title}**\n   • ID: ${task.id}\n   ${sourceInfo ? `${sourceInfo}\n   ` : ''}${task.hasBeenAIScored && overallScore ? `• Overall AI Score: ${overallScore}%` : ''}\n   ${task.relevanceScore !== undefined ? `• Relevance: ${(task.relevanceScore * 100).toFixed(0)}%` : ''}\n   ${task.impactScore !== undefined ? `• Impact: ${(task.impactScore * 100).toFixed(0)}%` : ''}\n   ${task.urgencyScore !== undefined ? `• Urgency: ${(task.urgencyScore * 100).toFixed(0)}%` : ''}\n   ${task.estimatedTime ? `• Time: ${task.estimatedTime} min` : ''}\n   ${task.energyRequired ? `• Energy: ${task.energyRequired}` : ''}\n   ${task.dueDate ? `• Due: ${new Date(task.dueDate).toLocaleDateString()}` : ''}`;
       }).join('\n')}\n${tasks.length > 10 ? `\n... and ${tasks.length - 10} more tasks` : ''}`;
       return { content: [{ type: 'text', text: response } as TextContent] };
     } catch (error) {
@@ -679,7 +721,10 @@ export class AiDDMCPServer {
       task = enriched[0];
       const hasScores = task.relevanceScore !== undefined && task.impactScore !== undefined && task.urgencyScore !== undefined;
       const overallScore = hasScores ? ((task.relevanceScore + task.impactScore + task.urgencyScore) / 3 * 100).toFixed(0) : undefined;
-      const response = `✅ **Task Details**\n\n**Title:** ${task.title}\n**ID:** ${task.id}\n${task.hasBeenAIScored ? `**AI Scored:** ✓` : ''}\n${overallScore ? `**Overall AI Score:** ${overallScore}%` : ''}\n${task.relevanceScore !== undefined ? `**Relevance Score:** ${(task.relevanceScore * 100).toFixed(0)}%` : ''}\n${task.impactScore !== undefined ? `**Impact Score:** ${(task.impactScore * 100).toFixed(0)}%` : ''}\n${task.urgencyScore !== undefined ? `**Urgency Score:** ${(task.urgencyScore * 100).toFixed(0)}%` : ''}\n${task.estimatedTime ? `**Estimated Time:** ${task.estimatedTime} minutes` : ''}\n${task.energyRequired ? `**Energy Required:** ${task.energyRequired}` : ''}\n${task.taskType ? `**Task Type:** ${task.taskType}` : ''}\n${task.dueDate ? `**Due Date:** ${new Date(task.dueDate).toLocaleDateString()}` : ''}\n${task.tags && task.tags.length > 0 ? `**Tags:** ${task.tags.join(', ')}` : ''}\n\n**Description:**\n${task.description || 'No description'}\n\n${task.dependsOnTaskOrders && task.dependsOnTaskOrders.length > 0 ? `**Dependencies:** Tasks ${task.dependsOnTaskOrders.join(', ')}` : ''}`;
+      const sourceActionItemSection = task.sourceActionItem
+        ? `\n**Source Action Item:**\n• Title: ${task.sourceActionItem.title}\n• ID: ${task.actionItemId}\n• Priority: ${task.sourceActionItem.priority || 'N/A'}\n• Category: ${task.sourceActionItem.category || 'N/A'}\n`
+        : (task.actionItemId ? `\n**Source Action Item ID:** ${task.actionItemId}\n` : '');
+      const response = `✅ **Task Details**\n\n**Title:** ${task.title}\n**ID:** ${task.id}${sourceActionItemSection}\n${task.hasBeenAIScored ? `**AI Scored:** ✓` : ''}\n${overallScore ? `**Overall AI Score:** ${overallScore}%` : ''}\n${task.relevanceScore !== undefined ? `**Relevance Score:** ${(task.relevanceScore * 100).toFixed(0)}%` : ''}\n${task.impactScore !== undefined ? `**Impact Score:** ${(task.impactScore * 100).toFixed(0)}%` : ''}\n${task.urgencyScore !== undefined ? `**Urgency Score:** ${(task.urgencyScore * 100).toFixed(0)}%` : ''}\n${task.estimatedTime ? `**Estimated Time:** ${task.estimatedTime} minutes` : ''}\n${task.energyRequired ? `**Energy Required:** ${task.energyRequired}` : ''}\n${task.taskType ? `**Task Type:** ${task.taskType}` : ''}\n${task.dueDate ? `**Due Date:** ${new Date(task.dueDate).toLocaleDateString()}` : ''}\n${task.tags && task.tags.length > 0 ? `**Tags:** ${task.tags.join(', ')}` : ''}\n\n**Description:**\n${task.description || 'No description'}\n\n${task.dependsOnTaskOrders && task.dependsOnTaskOrders.length > 0 ? `**Dependencies:** Tasks ${task.dependsOnTaskOrders.join(', ')}` : ''}`;
       return { content: [{ type: 'text', text: response } as TextContent] };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error reading task: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
@@ -856,6 +901,717 @@ export class AiDDMCPServer {
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ **Error deleting tasks:** ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent], isError: true };
     }
+  }
+
+  private async handleOverviewTutorial(args: any) {
+    const { mode = 'overview', tutorialStep } = args;
+
+    switch (mode) {
+      case 'overview':
+        return this.generateOverviewContent();
+      case 'tutorial':
+        return this.generateTutorialContent(tutorialStep);
+      case 'quick_start':
+        return this.generateQuickStartContent();
+      case 'workflow_examples':
+        return this.generateWorkflowExamplesContent();
+      default:
+        return this.generateOverviewContent();
+    }
+  }
+
+  private generateOverviewContent() {
+    const content = `# 🧠 AiDD MCP Server - Complete Tool Overview
+
+**AiDD** (AI-Driven Daily Directives) is an ADHD-optimized productivity platform that helps you capture, organize, and execute tasks with AI assistance.
+
+---
+
+## 📝 NOTES TOOLS (5 tools)
+
+Notes are the starting point - capture ideas, meeting notes, emails, or any text.
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| \`list_notes\` | List all your notes | sortBy, order, limit, offset |
+| \`read_note\` | Read a specific note | noteId (required) |
+| \`create_note\` | Create a new note | title, content (required), tags, category |
+| \`update_note\` | Update an existing note | noteId (required), title, content, tags |
+| \`delete_notes\` | Delete notes | noteIds[] (required) |
+
+**Pro Tips:**
+- Notes are auto-enriched with extracted action items when you read them
+- Categories: \`work\` or \`personal\`
+- Use tags for easy filtering
+
+---
+
+## 📋 ACTION ITEMS TOOLS (6 tools)
+
+Action items are extracted from notes - specific things that need to be done.
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| \`list_action_items\` | List all action items | sortBy, order, limit, offset |
+| \`read_action_item\` | Read a specific action item | actionItemId (required) |
+| \`create_action_item\` | Create an action item | title (required), description, priority, dueDate, tags |
+| \`update_action_item\` | Update an action item | actionItemId (required), title, priority, isCompleted |
+| \`delete_action_items\` | Delete action items | actionItemIds[] (required) |
+| \`extract_action_items\` 🤖 | **AI-powered** extraction from notes/text | source (required), noteIds[], text, extractionMode |
+
+**Pro Tips:**
+- Priority levels: \`low\`, \`medium\`, \`high\`, \`critical\`
+- Extraction modes: \`quick\`, \`comprehensive\`, \`adhd-optimized\` (default)
+- Action items are auto-enriched with derived tasks
+
+---
+
+## ✅ TASKS TOOLS (6 tools)
+
+Tasks are ADHD-optimized, bite-sized work items broken down from action items.
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| \`list_tasks\` | List all tasks with AI scores | sortBy, order, limit, offset |
+| \`read_task\` | Read a specific task | taskId (required) |
+| \`create_task\` | Create a task | title (required), estimatedTime, energyRequired, taskType |
+| \`update_task\` | Update a task | taskId (required), title, isCompleted, etc. |
+| \`delete_tasks\` | Delete tasks | taskIds[] (required) |
+| \`convert_to_tasks\` 🤖 | **AI-powered** conversion from action items | actionItemIds[], breakdownMode, waitForCompletion |
+| \`score_tasks\` 🤖 | **AI-powered** prioritization | considerCurrentEnergy, timeOfDay, waitForCompletion |
+
+**Task Types:** \`quick_win\`, \`focus_required\`, \`collaborative\`, \`creative\`, \`administrative\`
+**Energy Levels:** \`low\`, \`medium\`, \`high\`
+
+**Pro Tips:**
+- Tasks include AI scores: relevance, impact, urgency
+- Use \`waitForCompletion: false\` (default) for background processing
+- Tasks are enriched with source action item data
+
+---
+
+## 📊 RESOURCES (Read-Only Data Access)
+
+| Resource URI | Description |
+|--------------|-------------|
+| \`aidd://notes\` | JSON dump of all notes |
+| \`aidd://action-items\` | JSON dump of all action items |
+| \`aidd://tasks\` | JSON dump of all tasks |
+
+---
+
+## 🤖 AI-POWERED TOOLS (3 tools)
+
+These tools use Google Gemini AI for intelligent processing:
+
+1. **\`extract_action_items\`** - Scans notes/text and identifies actionable items
+2. **\`convert_to_tasks\`** - Breaks down action items into ADHD-friendly tasks
+3. **\`score_tasks\`** - Prioritizes tasks based on urgency, impact, energy needs
+
+**Usage Limits (per tier):**
+| Tier | Scoring | Extraction | Conversion |
+|------|---------|------------|------------|
+| FREE | 1/month | 3/week | 1/week |
+| PRO | 300/month | 200/week | 200/week |
+
+---
+
+## 🚀 Next Steps
+
+Try these modes for more help:
+- \`mode: "quick_start"\` - Get productive in 5 minutes
+- \`mode: "tutorial"\` - Step-by-step walkthrough (7 steps)
+- \`mode: "workflow_examples"\` - Real-world usage patterns
+
+---
+
+*💡 AiDD is designed for ADHD brains - small tasks, clear priorities, dopamine-friendly progress tracking!*`;
+
+    return { content: [{ type: 'text', text: content } as TextContent] };
+  }
+
+  private generateTutorialContent(step?: number) {
+    const steps = [
+      {
+        title: '📖 Step 1: Create Your First Note',
+        content: `## 📖 Step 1: Create Your First Note
+
+Notes are where everything starts in AiDD. Let's create one!
+
+**Try this command:**
+\`\`\`
+create_note:
+  title: "Project Planning - Q1 Goals"
+  content: "Need to finish the website redesign by January 15th. Also should schedule team sync meeting. Remember to review the budget proposal from accounting."
+  category: "work"
+  tags: ["project", "q1", "planning"]
+\`\`\`
+
+**What happens:**
+- Your note is saved to your AiDD account
+- You get back the note ID for reference
+- The note is now ready for AI action item extraction!
+
+**ADHD Tip:** Don't worry about organizing - just dump your thoughts. The AI will help structure them later.
+
+---
+➡️ **Next:** Use \`mode: "tutorial", tutorialStep: 2\` to continue`
+      },
+      {
+        title: '🔍 Step 2: Extract Action Items with AI',
+        content: `## 🔍 Step 2: Extract Action Items with AI
+
+Now let's use AI to find actionable items in your notes!
+
+**Try this command:**
+\`\`\`
+extract_action_items:
+  source: "notes"
+  extractionMode: "adhd-optimized"
+\`\`\`
+
+**What happens:**
+- AI scans ALL your unprocessed notes
+- Identifies specific action items (tasks, deadlines, commitments)
+- Assigns priority levels and categories automatically
+- Saves extracted items to your account
+
+**Extraction Modes:**
+- \`quick\` - Fast, basic extraction
+- \`comprehensive\` - Thorough analysis
+- \`adhd-optimized\` - Breaks things into smaller, clearer items (default)
+
+**From our example note, AI might extract:**
+1. "Finish website redesign" (High priority, due Jan 15)
+2. "Schedule team sync meeting" (Medium priority)
+3. "Review budget proposal from accounting" (Medium priority)
+
+**ADHD Tip:** The AI automatically skips notes that have already been processed - no duplicates!
+
+---
+➡️ **Next:** Use \`mode: "tutorial", tutorialStep: 3\` to continue`
+      },
+      {
+        title: '✨ Step 3: Convert Action Items to Tasks',
+        content: `## ✨ Step 3: Convert Action Items to Tasks
+
+Action items are often too big. Let's break them into ADHD-friendly tasks!
+
+**Try this command:**
+\`\`\`
+convert_to_tasks:
+  breakdownMode: "adhd-optimized"
+  waitForCompletion: false
+\`\`\`
+
+**What happens:**
+- AI processes your action items in the background
+- Breaks each into 2-5 smaller, manageable tasks
+- Assigns time estimates (5-30 min each)
+- Sets energy requirements (low/medium/high)
+- Creates task dependencies
+
+**Example breakdown of "Finish website redesign":**
+1. Review current homepage mockups (15 min, low energy, quick_win)
+2. Gather team feedback on color scheme (20 min, medium energy, collaborative)
+3. Update hero section copy (25 min, high energy, creative)
+4. Test mobile responsiveness (15 min, medium energy, focus_required)
+
+**Task Types:**
+- \`quick_win\` - Easy dopamine hits! Do these first
+- \`focus_required\` - Need uninterrupted time
+- \`collaborative\` - Involves other people
+- \`creative\` - Brainstorming, design work
+- \`administrative\` - Routine tasks
+
+**ADHD Tip:** Start with quick_wins to build momentum!
+
+---
+➡️ **Next:** Use \`mode: "tutorial", tutorialStep: 4\` to continue`
+      },
+      {
+        title: '🎯 Step 4: Score and Prioritize Tasks',
+        content: `## 🎯 Step 4: Score and Prioritize Tasks
+
+Now let's use AI to figure out what to work on first!
+
+**Try this command:**
+\`\`\`
+score_tasks:
+  considerCurrentEnergy: true
+  timeOfDay: "auto"
+  waitForCompletion: false
+\`\`\`
+
+**What happens:**
+- AI analyzes ALL your tasks
+- Scores each on three dimensions:
+  - **Relevance** - How important to your goals
+  - **Impact** - What difference it makes
+  - **Urgency** - How time-sensitive
+- Creates an optimal execution order
+- Considers your current energy level and time of day
+
+**Scoring Output:**
+\`\`\`
+1. Review homepage mockups (Score: 87/100)
+   • Urgency: 9/10 (deadline approaching)
+   • Impact: 7/10
+   • ADHD Match: 9/10 (quick win, builds momentum)
+   📝 "Start here - easy win before the deadline"
+\`\`\`
+
+**Time-of-Day Optimization:**
+- 🌅 Morning: High-energy, focus-required tasks
+- ☀️ Afternoon: Medium-energy, collaborative tasks
+- 🌙 Evening: Low-energy, administrative tasks
+
+**ADHD Tip:** Trust the AI scores! Stop decision paralysis - just start with #1.
+
+---
+➡️ **Next:** Use \`mode: "tutorial", tutorialStep: 5\` to continue`
+      },
+      {
+        title: '📊 Step 5: View and Manage Your Work',
+        content: `## 📊 Step 5: View and Manage Your Work
+
+Let's see everything you've created and learn to navigate!
+
+**List your tasks (sorted by AI score):**
+\`\`\`
+list_tasks:
+  sortBy: "score"
+  order: "desc"
+  limit: 10
+\`\`\`
+
+**List your action items:**
+\`\`\`
+list_action_items:
+  sortBy: "priority"
+  order: "desc"
+\`\`\`
+
+**Read a specific task for details:**
+\`\`\`
+read_task:
+  taskId: "task_abc123"
+\`\`\`
+
+**What you'll see:**
+- Tasks show AI scores, time estimates, energy requirements
+- Action items show derived task count
+- Notes show extracted action item count
+
+**Sorting Options:**
+- Tasks: \`createdAt\`, \`updatedAt\`, \`score\`, \`dueDate\`
+- Action Items: \`createdAt\`, \`updatedAt\`, \`priority\`, \`dueDate\`
+- Notes: \`createdAt\`, \`updatedAt\`, \`title\`
+
+**ADHD Tip:** Use \`limit: 5\` to avoid overwhelm - just focus on the top 5!
+
+---
+➡️ **Next:** Use \`mode: "tutorial", tutorialStep: 6\` to continue`
+      },
+      {
+        title: '✅ Step 6: Complete and Update Tasks',
+        content: `## ✅ Step 6: Complete and Update Tasks
+
+Time to mark progress and feel that dopamine hit!
+
+**Mark a task as completed:**
+\`\`\`
+update_task:
+  taskId: "task_abc123"
+  isCompleted: true
+\`\`\`
+
+**Update task details:**
+\`\`\`
+update_task:
+  taskId: "task_abc123"
+  estimatedTime: 20
+  dueDate: "2024-01-20"
+\`\`\`
+
+**Mark action item complete (when all tasks done):**
+\`\`\`
+update_action_item:
+  actionItemId: "ai_xyz789"
+  isCompleted: true
+\`\`\`
+
+**Delete items you no longer need:**
+\`\`\`
+delete_tasks:
+  taskIds: ["task_old1", "task_old2"]
+\`\`\`
+
+**What you can update:**
+| Type | Updatable Fields |
+|------|-----------------|
+| Tasks | title, description, estimatedTime, energyRequired, taskType, dueDate, tags, isCompleted |
+| Action Items | title, description, priority, dueDate, tags, category, isCompleted |
+| Notes | title, content, tags, category |
+
+**ADHD Tip:** Celebrate completions! Each ✅ is progress worth acknowledging.
+
+---
+➡️ **Next:** Use \`mode: "tutorial", tutorialStep: 7\` to continue`
+      },
+      {
+        title: '🔄 Step 7: Daily Workflow',
+        content: `## 🔄 Step 7: Your Daily AiDD Workflow
+
+Here's a sustainable daily routine using AiDD:
+
+### 🌅 Morning (5 minutes)
+\`\`\`
+1. score_tasks (timeOfDay: "morning")
+2. list_tasks (sortBy: "score", limit: 5)
+3. Start with task #1!
+\`\`\`
+
+### 📝 Throughout the Day
+\`\`\`
+- Capture thoughts: create_note
+- Quick extraction: extract_action_items (on new notes)
+- Mark done: update_task (isCompleted: true)
+\`\`\`
+
+### 🌙 Evening/Weekly (10 minutes)
+\`\`\`
+1. extract_action_items (process all new notes)
+2. convert_to_tasks (break down new action items)
+3. Review: list_action_items to see what's pending
+\`\`\`
+
+### 💡 ADHD Success Tips
+
+1. **Don't over-organize** - Let AI do the sorting
+2. **Start with quick wins** - Build momentum
+3. **Time-box processing** - 5 min max for daily review
+4. **Trust the scores** - Stop re-prioritizing mentally
+5. **Capture immediately** - Note it or lose it
+6. **Celebrate completions** - Every ✅ matters!
+
+---
+
+## 🎉 You're Ready!
+
+You now know how to:
+- ✅ Create and manage notes
+- ✅ Extract action items with AI
+- ✅ Convert to ADHD-friendly tasks
+- ✅ Prioritize with AI scoring
+- ✅ Track and complete work
+
+**Pro tip:** Use \`mode: "workflow_examples"\` to see real-world scenarios!
+
+---
+*Remember: AiDD works WITH your ADHD brain, not against it. Small tasks, clear priorities, visible progress. You've got this! 🧠✨*`
+      }
+    ];
+
+    if (step && step >= 1 && step <= steps.length) {
+      return { content: [{ type: 'text', text: steps[step - 1].content } as TextContent] };
+    }
+
+    // Return all steps with navigation
+    const fullTutorial = `# 🎓 AiDD Interactive Tutorial
+
+This 7-step tutorial will teach you everything about AiDD. Each step is hands-on!
+
+**Navigation:**
+- Use \`tutorialStep: 1\` through \`tutorialStep: 7\` to view individual steps
+- Or read through all steps below
+
+---
+
+${steps.map(s => s.content).join('\n\n---\n\n')}`;
+
+    return { content: [{ type: 'text', text: fullTutorial } as TextContent] };
+  }
+
+  private generateQuickStartContent() {
+    const content = `# ⚡ AiDD Quick Start - Be Productive in 5 Minutes
+
+## Step 1: Dump Your Brain (1 minute)
+
+Create a note with everything on your mind:
+
+\`\`\`
+create_note:
+  title: "Brain Dump - Today"
+  content: "Reply to Sarah's email about the project timeline. Need to buy groceries - milk, eggs, bread. Call dentist to reschedule appointment. Review pull request from Tom. Fix the login bug before Friday."
+  category: "work"
+\`\`\`
+
+## Step 2: Let AI Extract Actions (1 minute)
+
+\`\`\`
+extract_action_items:
+  source: "notes"
+  extractionMode: "adhd-optimized"
+\`\`\`
+
+This finds all the actionable items and saves them.
+
+## Step 3: Convert to Tasks (1 minute)
+
+\`\`\`
+convert_to_tasks:
+  breakdownMode: "adhd-optimized"
+\`\`\`
+
+AI breaks your action items into small, doable tasks.
+
+## Step 4: Get Your Priority List (1 minute)
+
+\`\`\`
+score_tasks:
+  timeOfDay: "auto"
+\`\`\`
+
+AI tells you exactly what to work on first.
+
+## Step 5: See Your Tasks (1 minute)
+
+\`\`\`
+list_tasks:
+  sortBy: "score"
+  order: "desc"
+  limit: 5
+\`\`\`
+
+## 🎉 Done! Now Just Start Task #1
+
+That's it! In 5 minutes you went from chaos to a prioritized task list.
+
+---
+
+### Quick Commands Reference
+
+| What You Want | Command |
+|--------------|---------|
+| Add a thought | \`create_note\` |
+| Find action items | \`extract_action_items\` |
+| Make tasks | \`convert_to_tasks\` |
+| Prioritize | \`score_tasks\` |
+| See top tasks | \`list_tasks\` (sortBy: score) |
+| Mark done | \`update_task\` (isCompleted: true) |
+
+---
+
+*🧠 ADHD Pro Tip: Don't think, just capture. Let the AI organize. Start with whatever task it says is #1.*`;
+
+    return { content: [{ type: 'text', text: content } as TextContent] };
+  }
+
+  private generateWorkflowExamplesContent() {
+    const content = `# 🔄 AiDD Real-World Workflow Examples
+
+## 📧 Workflow 1: Processing Email Backlog
+
+**Scenario:** You have 50 unread emails and feel overwhelmed.
+
+\`\`\`
+# Step 1: Create a note with email summaries
+create_note:
+  title: "Email Backlog - December 15"
+  content: |
+    From Boss: Need Q4 report by Friday
+    From Client: Website feedback - wants darker colors
+    From HR: Benefits enrollment deadline Dec 20
+    From Dev Team: Code review needed for auth module
+    From Marketing: Approve social media calendar
+  category: "work"
+  tags: ["email", "inbox-zero"]
+
+# Step 2: Extract action items
+extract_action_items:
+  source: "notes"
+  extractionMode: "comprehensive"
+
+# Step 3: Convert to tasks
+convert_to_tasks:
+  breakdownMode: "adhd-optimized"
+
+# Step 4: Prioritize based on deadlines
+score_tasks:
+  considerCurrentEnergy: true
+\`\`\`
+
+**Result:** 5 emails → 5 action items → ~15 small tasks → prioritized list
+
+---
+
+## 📝 Workflow 2: Meeting Notes to Actions
+
+**Scenario:** You just finished a 1-hour meeting with lots of takeaways.
+
+\`\`\`
+# Step 1: Brain dump meeting notes immediately
+create_note:
+  title: "Product Sync - Dec 15"
+  content: |
+    Attendees: Me, Sarah, Tom, Lisa
+
+    Decisions made:
+    - Launch date moved to Jan 15
+    - Budget approved for extra developer
+
+    My action items:
+    - Update project timeline in Jira
+    - Send revised estimate to client
+    - Schedule interview for new dev role
+    - Review Tom's wireframes by EOD tomorrow
+
+    Follow-ups:
+    - Lisa will send competitive analysis
+    - Need to sync with marketing next week
+  category: "work"
+  tags: ["meeting", "product", "q1-launch"]
+
+# Step 2: Extract (AI finds YOUR action items)
+extract_action_items:
+  source: "notes"
+
+# Step 3: Convert (breaks "Update project timeline" into smaller steps)
+convert_to_tasks:
+  breakdownMode: "adhd-optimized"
+\`\`\`
+
+**Result:** Meeting → 4 action items → ~12 tasks with time estimates
+
+---
+
+## 🏠 Workflow 3: Personal Life Management
+
+**Scenario:** Weekend chores and errands piling up.
+
+\`\`\`
+# Step 1: List everything
+create_note:
+  title: "Weekend TODO"
+  content: |
+    House stuff:
+    - Clean bathroom (it's bad)
+    - Do laundry - at least 3 loads
+    - Fix leaky faucet in kitchen
+
+    Errands:
+    - Grocery shopping
+    - Return Amazon package
+    - Pick up dry cleaning
+
+    Personal:
+    - Call mom for her birthday
+    - Book flights for February trip
+    - Cancel unused gym membership
+  category: "personal"
+  tags: ["weekend", "chores"]
+
+# Step 2-4: Same process
+extract_action_items: { source: "notes" }
+convert_to_tasks: { breakdownMode: "adhd-optimized" }
+score_tasks: { timeOfDay: "morning" }
+\`\`\`
+
+**ADHD Tip:** Tasks like "Clean bathroom" become:
+1. Gather cleaning supplies (5 min)
+2. Clean toilet (10 min)
+3. Clean sink and counter (10 min)
+4. Clean shower/tub (15 min)
+5. Mop floor (10 min)
+
+Much less scary as 5 small tasks!
+
+---
+
+## 🚀 Workflow 4: Project Kickoff
+
+**Scenario:** Starting a new project, need to plan everything.
+
+\`\`\`
+# Step 1: Brainstorm everything
+create_note:
+  title: "New Project: Mobile App v2"
+  content: |
+    Goals:
+    - Redesign home screen
+    - Add dark mode
+    - Improve performance
+    - Fix top 10 user complaints
+
+    Stakeholders to involve:
+    - Design team for mockups
+    - Backend team for API changes
+    - QA for test plan
+    - Marketing for launch assets
+
+    Milestones:
+    - Design complete by Jan 15
+    - Development done by Feb 15
+    - Testing complete by Feb 28
+    - Launch March 1
+
+    Risks:
+    - Backend team has limited availability
+    - New design system not documented
+  category: "work"
+  tags: ["project", "mobile-app", "v2"]
+
+# Continue with extract → convert → score
+\`\`\`
+
+---
+
+## 💡 Workflow 5: Daily Review Ritual
+
+**Scenario:** Start of each day, 5-minute routine.
+
+\`\`\`
+# Morning Startup
+score_tasks:
+  timeOfDay: "morning"
+  considerCurrentEnergy: true
+
+list_tasks:
+  sortBy: "score"
+  order: "desc"
+  limit: 3
+
+# → Work on task #1
+# → When done:
+update_task:
+  taskId: "completed_task_id"
+  isCompleted: true
+
+# → Check next task:
+list_tasks:
+  sortBy: "score"
+  limit: 1
+\`\`\`
+
+---
+
+## 📱 Quick Reference: Common Patterns
+
+| Situation | Tools to Use |
+|-----------|-------------|
+| Brain is full | \`create_note\` → \`extract_action_items\` |
+| Need to start working | \`score_tasks\` → \`list_tasks\` (limit: 1) |
+| Finished something | \`update_task\` (isCompleted: true) |
+| Feel overwhelmed | \`list_tasks\` (limit: 3) - just 3 things |
+| End of day | \`list_action_items\` - see what's pending |
+| Weekly review | \`list_notes\` → \`extract_action_items\` |
+
+---
+
+*🧠 Remember: The goal isn't to do everything. It's to do the RIGHT things. Let AI handle the prioritization so you can focus on execution.*`;
+
+    return { content: [{ type: 'text', text: content } as TextContent] };
   }
 
   private getTimeOfDay(): string {

@@ -247,6 +247,8 @@ app.get('/health', (req, res) => {
     status: 'healthy',
     service: 'AiDD MCP Web Connector',
     version: '4.0.2',
+    buildTimestamp: process.env.BUILD_TIMESTAMP || 'unknown',
+    toolCount: 20,
     timestamp: new Date().toISOString(),
   });
 });

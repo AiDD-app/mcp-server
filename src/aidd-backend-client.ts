@@ -1083,4 +1083,19 @@ export class AiDDBackendClient extends EventEmitter {
   getUserId(): string | undefined {
     return this.userId;
   }
+
+  async getAuthenticatedUser(): Promise<{ id: string; userId: string; email: string; name: string; subscriptionTier: string }> {
+    if (!this.deviceToken) await this.authenticate();
+    try {
+      const response = await fetch(`${this.baseUrl}/api/auth/me`, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${this.deviceToken}`, 'Content-Type': 'application/json' },
+      });
+      if (!response.ok) throw new Error(`Failed to get authenticated user: ${response.statusText}`);
+      return await response.json() as { id: string; userId: string; email: string; name: string; subscriptionTier: string };
+    } catch (error) {
+      this.emit('error', { type: 'getAuthenticatedUser', error });
+      throw error;
+    }
+  }
 }
