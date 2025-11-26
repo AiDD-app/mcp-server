@@ -386,7 +386,7 @@ export class AiDDBackendClient extends EventEmitter {
         return await this.handleSSEResponse(response, 'conversion');
       }
       const jobData = await response.json() as { jobId?: string; tasks?: ConvertedTask[] };
-      if (jobData.tasks?.length > 0) {
+      if (jobData.tasks && jobData.tasks.length > 0) {
         onProgress?.(100, 'Conversion complete (cached)');
         return jobData.tasks;
       }
@@ -504,7 +504,7 @@ export class AiDDBackendClient extends EventEmitter {
         return await this.handleSSEResponse(response, 'scoring');
       }
       const jobData = await response.json() as { jobId?: string; scoredTasks?: ScoredTask[] };
-      if (jobData.scoredTasks?.length > 0) {
+      if (jobData.scoredTasks && jobData.scoredTasks.length > 0) {
         onProgress?.(100, 'Scoring complete (cached)');
         return jobData.scoredTasks;
       }

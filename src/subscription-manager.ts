@@ -287,12 +287,13 @@ export class SubscriptionManager {
         upgradeUrl: result.upgradeUrl!,
       });
     } else {
-      result.warningMessage = generateUsageWarning({
+      const warning = generateUsageWarning({
         operation,
         current,
         limit,
         tier,
       });
+      result.warningMessage = warning || undefined;
     }
 
     return result;

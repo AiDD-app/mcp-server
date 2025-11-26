@@ -38,7 +38,7 @@ export class AiDDMCPServer {
     this.server = new Server(
       {
         name: 'AiDD',
-        version: '4.1.1',
+        version: '4.3.0',
         icons: [{
           src: `${BASE_URL}/icon.png`,
           mimeType: 'image/png',
@@ -450,7 +450,8 @@ export class AiDDMCPServer {
 
   private async handleListNotes(args: any) {
     try {
-      const notes = await this.backendClient.listNotes(args);
+      let notes = await this.backendClient.listNotes(args);
+      notes = await this.enrichNotesWithExtractedActionItems(notes);
       const response = `📝 **Notes Retrieved**\n\n**Total notes:** ${notes.length}\n\n${notes.slice(0, 10).map((note: any, i: number) => `${i + 1}. **${note.title}**\n   • ID: ${note.id}\n   • Category: ${note.category || 'personal'}\n   • Created: ${new Date(note.createdAt).toLocaleDateString()}\n   ${note.tags && note.tags.length > 0 ? `• Tags: ${note.tags.join(', ')}` : ''}`).join('\n')}\n${notes.length > 10 ? `\n... and ${notes.length - 10} more notes` : ''}`;
       return { content: [{ type: 'text', text: response } as TextContent] };
     } catch (error) {
@@ -460,7 +461,10 @@ export class AiDDMCPServer {
 
   private async handleReadNote(args: any) {
     try {
-      const note = await this.backendClient.readNote(args.noteId);
+      let note = await this.backendClient.readNote(args.noteId);
+      // Enrich with extracted action items
+      const enriched = await this.enrichNotesWithExtractedActionItems([note]);
+      note = enriched[0];
       const response = `📄 **Note Details**\n\n**Title:** ${note.title}\n**ID:** ${note.id}\n**Category:** ${note.category || 'personal'}\n**Created:** ${new Date(note.createdAt).toLocaleDateString()}\n${note.tags && note.tags.length > 0 ? `**Tags:** ${note.tags.join(', ')}` : ''}\n\n**Content:**\n${note.content}`;
       return { content: [{ type: 'text', text: response } as TextContent] };
     } catch (error) {
@@ -480,7 +484,8 @@ export class AiDDMCPServer {
 
   private async handleListActionItems(args: any) {
     try {
-      const actionItems = await this.backendClient.listActionItems(args);
+      let actionItems = await this.backendClient.listActionItems(args);
+      actionItems = await this.enrichActionItemsWithDerivedTasks(actionItems);
       const response = `📋 **Action Items Retrieved**\n\n**Total action items:** ${actionItems.length}\n\n${actionItems.slice(0, 10).map((item: any, i: number) => `${i + 1}. **${item.title}**\n   • ID: ${item.id}\n   • Priority: ${item.priority}\n   • Category: ${item.category}\n   ${item.dueDate ? `• Due: ${new Date(item.dueDate).toLocaleDateString()}` : ''}\n   ${item.tags && item.tags.length > 0 ? `• Tags: ${item.tags.join(', ')}` : ''}`).join('\n')}\n${actionItems.length > 10 ? `\n... and ${actionItems.length - 10} more items` : ''}`;
       return { content: [{ type: 'text', text: response } as TextContent] };
     } catch (error) {
@@ -490,7 +495,10 @@ export class AiDDMCPServer {
 
   private async handleReadActionItem(args: any) {
     try {
-      const item = await this.backendClient.readActionItem(args.actionItemId);
+      let item = await this.backendClient.readActionItem(args.actionItemId);
+      // Enrich with derived tasks
+      const enriched = await this.enrichActionItemsWithDerivedTasks([item]);
+      item = enriched[0];
       const response = `📋 **Action Item Details**\n\n**Title:** ${item.title}\n**ID:** ${item.id}\n**Priority:** ${item.priority}\n**Category:** ${item.category}\n${item.dueDate ? `**Due Date:** ${new Date(item.dueDate).toLocaleDateString()}` : ''}\n${item.tags && item.tags.length > 0 ? `**Tags:** ${item.tags.join(', ')}` : ''}\n\n**Description:**\n${item.description || 'No description'}`;
       return { content: [{ type: 'text', text: response } as TextContent] };
     } catch (error) {
@@ -566,9 +574,92 @@ export class AiDDMCPServer {
     }
   }
 
+  /**
+   * Enrich tasks with their source action item data
+   */
+  private async enrichTasksWithSourceActionItems(tasks: any[]): Promise<any[]> {
+    const actionItemIds = [...new Set(tasks.filter(t => t.actionItemId).map(t => t.actionItemId))];
+    if (actionItemIds.length === 0) return tasks;
+
+    const actionItemsMap = new Map<string, any>();
+    for (const id of actionItemIds) {
+      try {
+        const actionItem = await this.backendClient.readActionItem(id);
+        actionItemsMap.set(id, actionItem);
+      } catch (error) {
+        console.warn(`Could not fetch action item ${id}:`, error);
+      }
+    }
+
+    return tasks.map(task => {
+      if (task.actionItemId && actionItemsMap.has(task.actionItemId)) {
+        return { ...task, sourceActionItem: actionItemsMap.get(task.actionItemId) };
+      }
+      return task;
+    });
+  }
+
+  /**
+   * Enrich action items with tasks that were derived from them
+   */
+  private async enrichActionItemsWithDerivedTasks(actionItems: any[]): Promise<any[]> {
+    if (actionItems.length === 0) return actionItems;
+
+    try {
+      const allTasks = await this.backendClient.listTasks({ limit: 500 });
+      const tasksByActionItemId = new Map<string, any[]>();
+      for (const task of allTasks) {
+        if (task.actionItemId) {
+          if (!tasksByActionItemId.has(task.actionItemId)) {
+            tasksByActionItemId.set(task.actionItemId, []);
+          }
+          tasksByActionItemId.get(task.actionItemId)!.push(task);
+        }
+      }
+
+      return actionItems.map(item => {
+        const derivedTasks = tasksByActionItemId.get(item.id) || [];
+        return { ...item, derivedTasks, derivedTaskCount: derivedTasks.length };
+      });
+    } catch (error) {
+      console.warn('Could not fetch tasks for enrichment:', error);
+      return actionItems;
+    }
+  }
+
+  /**
+   * Enrich notes with action items that were extracted from them
+   */
+  private async enrichNotesWithExtractedActionItems(notes: any[]): Promise<any[]> {
+    if (notes.length === 0) return notes;
+
+    try {
+      const allActionItems = await this.backendClient.listActionItems({ limit: 500 });
+      const actionItemsByNoteId = new Map<string, any[]>();
+      for (const item of allActionItems) {
+        const noteId = (item as any).noteId || (item as any).sourceNoteId;
+        if (noteId) {
+          if (!actionItemsByNoteId.has(noteId)) {
+            actionItemsByNoteId.set(noteId, []);
+          }
+          actionItemsByNoteId.get(noteId)!.push(item);
+        }
+      }
+
+      return notes.map(note => {
+        const extractedActionItems = actionItemsByNoteId.get(note.id) || [];
+        return { ...note, extractedActionItems, extractedActionItemCount: extractedActionItems.length };
+      });
+    } catch (error) {
+      console.warn('Could not fetch action items for enrichment:', error);
+      return notes;
+    }
+  }
+
   private async handleListTasks(args: any) {
     try {
-      const tasks = await this.backendClient.listTasks(args);
+      let tasks = await this.backendClient.listTasks(args);
+      tasks = await this.enrichTasksWithSourceActionItems(tasks);
       const response = `✅ **Tasks Retrieved**\n\n**Total tasks:** ${tasks.length}\n\n${tasks.slice(0, 10).map((task: any, i: number) => {
         const hasScores = task.relevanceScore !== undefined && task.impactScore !== undefined && task.urgencyScore !== undefined;
         const overallScore = hasScores ? ((task.relevanceScore + task.impactScore + task.urgencyScore) / 3 * 100).toFixed(0) : undefined;
@@ -582,7 +673,10 @@ export class AiDDMCPServer {
 
   private async handleReadTask(args: any) {
     try {
-      const task = await this.backendClient.readTask(args.taskId);
+      let task = await this.backendClient.readTask(args.taskId);
+      // Enrich with source action item
+      const enriched = await this.enrichTasksWithSourceActionItems([task]);
+      task = enriched[0];
       const hasScores = task.relevanceScore !== undefined && task.impactScore !== undefined && task.urgencyScore !== undefined;
       const overallScore = hasScores ? ((task.relevanceScore + task.impactScore + task.urgencyScore) / 3 * 100).toFixed(0) : undefined;
       const response = `✅ **Task Details**\n\n**Title:** ${task.title}\n**ID:** ${task.id}\n${task.hasBeenAIScored ? `**AI Scored:** ✓` : ''}\n${overallScore ? `**Overall AI Score:** ${overallScore}%` : ''}\n${task.relevanceScore !== undefined ? `**Relevance Score:** ${(task.relevanceScore * 100).toFixed(0)}%` : ''}\n${task.impactScore !== undefined ? `**Impact Score:** ${(task.impactScore * 100).toFixed(0)}%` : ''}\n${task.urgencyScore !== undefined ? `**Urgency Score:** ${(task.urgencyScore * 100).toFixed(0)}%` : ''}\n${task.estimatedTime ? `**Estimated Time:** ${task.estimatedTime} minutes` : ''}\n${task.energyRequired ? `**Energy Required:** ${task.energyRequired}` : ''}\n${task.taskType ? `**Task Type:** ${task.taskType}` : ''}\n${task.dueDate ? `**Due Date:** ${new Date(task.dueDate).toLocaleDateString()}` : ''}\n${task.tags && task.tags.length > 0 ? `**Tags:** ${task.tags.join(', ')}` : ''}\n\n**Description:**\n${task.description || 'No description'}\n\n${task.dependsOnTaskOrders && task.dependsOnTaskOrders.length > 0 ? `**Dependencies:** Tasks ${task.dependsOnTaskOrders.join(', ')}` : ''}`;
