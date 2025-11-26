@@ -3,7 +3,7 @@
 **Official AiDD MCP Web Connector** - ADHD-optimized productivity platform accessible from Claude web, mobile, and desktop.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-4.0.2-blue.svg)](https://github.com/aidd-app/mcp-server)
+[![Version](https://img.shields.io/badge/version-4.1.1-blue.svg)](https://github.com/aidd-app/mcp-server)
 
 ## 🌐 Universal Access
 
@@ -17,14 +17,16 @@ Simply connect via URL - no local installation required.
 ## Features
 
 ### 📝 Notes Management
-- List, read, and create notes in your AiDD account
+- List, read, create, **update**, and **delete** notes in your AiDD account
 - Full-text search and pagination
 - Categorization (work/personal) and tags
+- Batch delete support
 
 ### ✅ Action Items (AI-Powered)
 - **AI Extraction**: Extract action items from notes or text using Google Gemini
-- List and read action items with priority/due dates
+- List, read, **update**, and **delete** action items with priority/due dates
 - Confidence scoring for each extracted item
+- Batch delete support
 
 ### 🎯 ADHD-Optimized Tasks
 - **AI Task Breakdown**: Convert action items into manageable subtasks
@@ -36,6 +38,14 @@ Simply connect via URL - no local installation required.
   - Urgency × Importance × Energy × ADHD compatibility
   - Time-of-day optimization
   - Personalized recommendations
+- **Full CRUD**: Create, read, **update**, and **delete** tasks
+- Batch delete support
+
+### 🚀 Async AI Processing (New in v4.1.0)
+- AI operations run in background by default for better UX
+- No timeout issues for large data sets
+- Check results in 2-3 minutes with `list_tasks`
+- Optional `waitForCompletion` parameter for small batches
 
 ### 🔐 Authentication
 - Browser-based OAuth (Google, Microsoft, Apple)
@@ -171,51 +181,42 @@ You: "Convert my action items to tasks with ADHD-optimized breakdown"
 Claude: [Uses convert_to_tasks with breakdownMode="adhd-optimized"]
 
 Response:
-✨ Tasks Created (ADHD-Optimized)
+🚀 AI Conversion Started
 
-Summary:
-• Action items converted: 5
-• Tasks created: 14
-• Average tasks per item: 2.8
+Converting 5 action items to ADHD-optimized tasks in the background.
 
-Created Tasks:
-1. Send reminder email to John about budget report
-   • Time: 5 min
-   • Energy: low
-   • Type: quick_win
-   📝 Start here for momentum!
+What's happening:
+• AI is breaking down action items into manageable tasks
+• Tasks are being optimized for ADHD-friendly execution
+• Each action item may generate multiple subtasks
 
-2. Check John's response and review budget numbers
-   • Time: 15 min
-   • Energy: medium
-   • Type: review
-   • Depends on: Task 1
-
-3. Look up client's preferred meeting times
-   • Time: 10 min
-   • Energy: low
-   • Type: administrative
-
-4. Send calendar invite for client demo
-   • Time: 5 min
-   • Energy: low
-   • Type: quick_win
-   • Depends on: Task 3
-
-5. Check API error logs in monitoring dashboard
-   • Time: 15 min
-   • Energy: medium
-   • Type: investigation
-
-Task Breakdown:
-• Quick wins: 4 (start here!)
-• Focus required: 3
-• Administrative: 4
-• Investigation: 2
-• Review: 1
+Check your results:
+⏱️ Check back in 2-3 minutes - use the `list_tasks` tool to see your converted tasks.
 ```
 
-### Example 4: Weekly Review and Planning
+### Example 4: Updating and Deleting Items
+
+**Scenario**: You need to modify or clean up your task list.
+
+```
+You: "Mark task abc123 as completed and delete the old action items I'm done with"
+
+Claude: [Uses update_task to mark complete, then delete_action_items]
+
+Response:
+✅ Task Updated
+
+Updated task: Complete quarterly report
+• ID: abc123
+• Status: ✅ Completed
+• Updated: 11/25/2025, 5:30 PM
+
+🗑️ Action Items Deleted
+
+Successfully deleted 3 action items.
+```
+
+### Example 5: Weekly Review and Planning
 
 **Scenario**: End of week review to see accomplishments and plan ahead.
 
@@ -260,72 +261,45 @@ Response:
 presentation while your energy is highest.
 ```
 
-### Example 5: Creating and Organizing Notes
-
-**Scenario**: You want to capture ideas and organize them properly.
-
-```
-You: "Create a note titled 'Product Roadmap Ideas' with these thoughts:
-     - Mobile app redesign for better accessibility
-     - Integration with Slack for notifications
-     - AI-powered task suggestions based on calendar
-     - Dark mode support
-     Tag it with 'product' and 'planning', category work"
-
-Claude: [Uses create_note with title, content, tags, category]
-
-Response:
-✅ Note Created
-
-Title: Product Roadmap Ideas
-ID: note_a1b2c3d4
-Category: work
-Tags: product, planning
-
-Content:
-- Mobile app redesign for better accessibility
-- Integration with Slack for notifications
-- AI-powered task suggestions based on calendar
-- Dark mode support
-
-The note has been saved to your AiDD account.
-
-💡 Tip: Say "extract action items from my Product Roadmap Ideas note"
-to turn these ideas into trackable tasks!
-```
-
 ---
 
 ## Available Tools
 
-### Notes (3 tools)
-| Tool | Description | Read-Only |
-|------|-------------|-----------|
-| `list_notes` | Browse notes (sortBy: createdAt/updatedAt/title) | ✅ |
-| `read_note` | Read specific note by ID | ✅ |
-| `create_note` | Create new note with title, content, tags, category | ❌ |
+### Notes (5 tools)
+| Tool | Description | Type |
+|------|-------------|------|
+| `list_notes` | Browse notes (sortBy: createdAt/updatedAt/title) | Read |
+| `read_note` | Read specific note by ID | Read |
+| `create_note` | Create new note with title, content, tags, category | Write |
+| `update_note` | Update existing note (title, content, tags, category) | Write |
+| `delete_notes` | Delete one or more notes by ID | Destructive |
 
-### Action Items (3 tools)
-| Tool | Description | Read-Only |
-|------|-------------|-----------|
-| `list_action_items` | Browse action items with sorting | ✅ |
-| `read_action_item` | Read specific action item by ID | ✅ |
-| `extract_action_items` | AI-powered extraction from notes or text | ❌ |
+### Action Items (5 tools)
+| Tool | Description | Type |
+|------|-------------|------|
+| `list_action_items` | Browse action items with sorting | Read |
+| `read_action_item` | Read specific action item by ID | Read |
+| `extract_action_items` | AI-powered extraction from notes or text | Write |
+| `update_action_item` | Update existing action item (title, priority, due date, etc.) | Write |
+| `delete_action_items` | Delete one or more action items by ID | Destructive |
 
-### Tasks (4 tools)
-| Tool | Description | Read-Only |
-|------|-------------|-----------|
-| `list_tasks` | Browse tasks with AI scores | ✅ |
-| `read_task` | Read specific task by ID | ✅ |
-| `convert_to_tasks` | Convert action items to ADHD-optimized tasks | ❌ |
-| `score_tasks` | AI-powered task prioritization | ❌ |
+### Tasks (6 tools)
+| Tool | Description | Type |
+|------|-------------|------|
+| `list_tasks` | Browse tasks with AI scores | Read |
+| `read_task` | Read specific task by ID | Read |
+| `create_task` | Create a new task manually | Write |
+| `convert_to_tasks` | Convert action items to ADHD-optimized tasks (async) | Write |
+| `score_tasks` | AI-powered task prioritization (async) | Write |
+| `update_task` | Update existing task (title, energy, time, completed, etc.) | Write |
+| `delete_tasks` | Delete one or more tasks by ID | Destructive |
 
 ### Authentication (1 tool)
-| Tool | Description | Read-Only |
-|------|-------------|-----------|
-| `status` | Check authentication status and account info | ✅ |
+| Tool | Description | Type |
+|------|-------------|------|
+| `status` | Check authentication status and account info | Read |
 
-**Total**: 11 tools (7 read-only, 4 write, 0 destructive)
+**Total**: 17 tools (8 read-only, 6 write, 3 destructive)
 
 ---
 
@@ -358,7 +332,7 @@ to turn these ideas into trackable tasks!
 - **Protocol**: MCP over HTTP/SSE (Streamable HTTP Transport)
 - **Transport**: Server-Sent Events
 - **Auth**: OAuth 2.0 with PKCE (S256)
-- **AI**: Google Gemini 3 Pro Preview & 2.5 Flash
+- **AI**: Google Gemini 2.5 Pro & 2.5 Flash
 
 ---
 
@@ -543,6 +517,22 @@ MIT © AiDD Team
 ---
 
 ## Changelog
+
+### v4.1.1 (2025-11-25)
+- ✏️ **New**: `update_note` - Update existing notes (title, content, tags, category)
+- 🗑️ **New**: `delete_notes` - Delete one or more notes (batch support)
+- ✏️ **New**: `update_action_item` - Update action items (title, priority, due date, completed status)
+- 🗑️ **New**: `delete_action_items` - Delete one or more action items (batch support)
+- ✏️ **New**: `update_task` - Update tasks (title, energy, time, type, completed status)
+- 🗑️ **New**: `delete_tasks` - Delete one or more tasks (batch support)
+- 📊 **Total tools**: 11 → 17
+
+### v4.1.0 (2025-11-24)
+- 🚀 **New**: Async mode for AI operations (default)
+- ⚡ **Improved**: `convert_to_tasks` runs in background, no timeout issues
+- ⚡ **Improved**: `score_tasks` runs in background, handles large task lists
+- 🔧 **New**: `waitForCompletion` parameter for synchronous mode
+- 📝 **Improved**: Better response messages with "check in 2-3 minutes" guidance
 
 ### v4.0.2 (2025-11-24)
 - 📚 **Docs**: Added 5 realistic usage examples for Anthropic review
