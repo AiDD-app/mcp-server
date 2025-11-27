@@ -344,7 +344,7 @@ export class AiDDMCPServer {
           properties: {
             actionItemIds: { type: 'array', items: { type: 'string' }, description: 'Specific action item IDs to convert (leave empty for all)' },
             breakdownMode: { type: 'string', enum: ['simple', 'adhd-optimized', 'detailed'], description: 'Task breakdown mode (default: adhd-optimized)' },
-            waitForCompletion: { type: 'boolean', description: 'Wait for conversion to complete (default: true). Set to false for background processing of large batches.' },
+            waitForCompletion: { type: 'boolean', description: 'Wait for conversion to complete (default: false for background processing).' },
           },
         },
       },
@@ -356,7 +356,7 @@ export class AiDDMCPServer {
           properties: {
             considerCurrentEnergy: { type: 'boolean', description: 'Consider current energy levels (default: true)' },
             timeOfDay: { type: 'string', enum: ['morning', 'afternoon', 'evening', 'auto'], description: 'Time of day for optimization (default: auto)' },
-            waitForCompletion: { type: 'boolean', description: 'Wait for scoring to complete (default: true). Set to false for background processing of large batches.' },
+            waitForCompletion: { type: 'boolean', description: 'Wait for scoring to complete (default: false for background processing).' },
           },
         },
       },
@@ -748,7 +748,7 @@ export class AiDDMCPServer {
       const usageCheck = await this.checkOperationLimit('conversion');
       if (!usageCheck.allowed) return this.formatLimitReachedResponse(usageCheck);
 
-      const { actionItemIds, breakdownMode = 'adhd-optimized', waitForCompletion = true } = args;
+      const { actionItemIds, breakdownMode = 'adhd-optimized', waitForCompletion = false } = args;
       let actionItems: any[] = [];
       let skippedCount = 0;
 
@@ -806,7 +806,7 @@ export class AiDDMCPServer {
       const usageCheck = await this.checkOperationLimit('scoring');
       if (!usageCheck.allowed) return this.formatLimitReachedResponse(usageCheck);
 
-      const { considerCurrentEnergy = true, timeOfDay = 'auto', waitForCompletion = true } = args;
+      const { considerCurrentEnergy = true, timeOfDay = 'auto', waitForCompletion = false } = args;
       const tasks = await this.backendClient.listTasks({});
 
       if (!waitForCompletion) {
