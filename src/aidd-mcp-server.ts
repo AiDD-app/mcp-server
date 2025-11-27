@@ -338,25 +338,25 @@ export class AiDDMCPServer {
       },
       {
         name: 'convert_to_tasks',
-        description: 'Convert action items to ADHD-optimized tasks using AiDD AI processing. Runs in background by default - check tasks in ~5 minutes.',
+        description: 'Convert action items to ADHD-optimized tasks using AiDD AI processing. Waits for completion and returns results.',
         inputSchema: {
           type: 'object',
           properties: {
             actionItemIds: { type: 'array', items: { type: 'string' }, description: 'Specific action item IDs to convert (leave empty for all)' },
             breakdownMode: { type: 'string', enum: ['simple', 'adhd-optimized', 'detailed'], description: 'Task breakdown mode (default: adhd-optimized)' },
-            waitForCompletion: { type: 'boolean', description: 'Wait for conversion to complete (default: false). Set to true only for small batches (<10 action items).' },
+            waitForCompletion: { type: 'boolean', description: 'Wait for conversion to complete (default: true). Set to false for background processing of large batches.' },
           },
         },
       },
       {
         name: 'score_tasks',
-        description: 'Score all tasks using AiDD AI for optimal ADHD-friendly prioritization. Runs in background by default - check tasks in ~5 minutes for updated scores.',
+        description: 'Score all tasks using AiDD AI for optimal ADHD-friendly prioritization. Waits for completion and returns scored tasks.',
         inputSchema: {
           type: 'object',
           properties: {
             considerCurrentEnergy: { type: 'boolean', description: 'Consider current energy levels (default: true)' },
             timeOfDay: { type: 'string', enum: ['morning', 'afternoon', 'evening', 'auto'], description: 'Time of day for optimization (default: auto)' },
-            waitForCompletion: { type: 'boolean', description: 'Wait for scoring to complete (default: false). Set to true only for small task lists (<30 tasks).' },
+            waitForCompletion: { type: 'boolean', description: 'Wait for scoring to complete (default: true). Set to false for background processing of large batches.' },
           },
         },
       },
@@ -748,7 +748,7 @@ export class AiDDMCPServer {
       const usageCheck = await this.checkOperationLimit('conversion');
       if (!usageCheck.allowed) return this.formatLimitReachedResponse(usageCheck);
 
-      const { actionItemIds, breakdownMode = 'adhd-optimized', waitForCompletion = false } = args;
+      const { actionItemIds, breakdownMode = 'adhd-optimized', waitForCompletion = true } = args;
       let actionItems: any[] = [];
       let skippedCount = 0;
 
@@ -806,7 +806,7 @@ export class AiDDMCPServer {
       const usageCheck = await this.checkOperationLimit('scoring');
       if (!usageCheck.allowed) return this.formatLimitReachedResponse(usageCheck);
 
-      const { considerCurrentEnergy = true, timeOfDay = 'auto', waitForCompletion = false } = args;
+      const { considerCurrentEnergy = true, timeOfDay = 'auto', waitForCompletion = true } = args;
       const tasks = await this.backendClient.listTasks({});
 
       if (!waitForCompletion) {
