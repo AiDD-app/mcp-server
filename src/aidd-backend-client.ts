@@ -47,6 +47,9 @@ interface ScoredTask {
   recommendation: string;
 }
 
+// Default timeout for API calls (30 seconds)
+const API_TIMEOUT_MS = 30000;
+
 export class AiDDBackendClient extends EventEmitter {
   private baseUrl = 'https://aidd-backend-prod-739193356129.us-central1.run.app';
   private apiKey = 'dev-api-key-123456';
@@ -56,6 +59,23 @@ export class AiDDBackendClient extends EventEmitter {
   private authManager: AuthManager;
   private useUserAuth: boolean = false;
   private oauthToken?: string;
+
+  // Helper to wrap fetch with timeout to prevent indefinite hanging
+  private async fetchWithTimeout(url: string, options: { method?: string; headers?: Record<string, string>; body?: string; timeout?: number } = {}): Promise<any> {
+    const { timeout = API_TIMEOUT_MS, ...fetchOptions } = options;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    try {
+      const response = await fetch(url, {
+        ...fetchOptions,
+        signal: controller.signal,
+      } as any);
+      return response;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
 
   constructor(oauthToken?: string) {
     super();
@@ -416,48 +436,62 @@ export class AiDDBackendClient extends EventEmitter {
       taskType: task.taskType,
     }));
     console.log('[MCP] Starting async scoring for', tasksToScore.length, 'tasks');
-    const response = await fetch(`${this.baseUrl}/api/ai/score-tasks`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.deviceToken}`,
-        'Content-Type': 'application/json',
-        'X-Device-ID': deviceId,
-      },
-      body: JSON.stringify({
-        deviceId: deviceId,
-        tasks: tasksToScore,
-        scoringFactors: { considerADHD: true, timeOfDay: new Date().getHours(), energyLevel: 'medium' },
-      }),
-    });
-    if (!response.ok) throw new Error(`Scoring failed: ${response.statusText}`);
-    const jobData = await response.json() as { jobId?: string };
-    if (!jobData.jobId) throw new Error('No jobId returned from scoring endpoint');
-    return { jobId: jobData.jobId, taskCount: tasksToScore.length };
+    try {
+      const response = await this.fetchWithTimeout(`${this.baseUrl}/api/ai/score-tasks`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.deviceToken}`,
+          'Content-Type': 'application/json',
+          'X-Device-ID': deviceId,
+        },
+        body: JSON.stringify({
+          deviceId: deviceId,
+          tasks: tasksToScore,
+          scoringFactors: { considerADHD: true, timeOfDay: new Date().getHours(), energyLevel: 'medium' },
+        }),
+      });
+      if (!response.ok) throw new Error(`Scoring failed: ${response.statusText}`);
+      const jobData = await response.json() as { jobId?: string };
+      if (!jobData.jobId) throw new Error('No jobId returned from scoring endpoint');
+      return { jobId: jobData.jobId, taskCount: tasksToScore.length };
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        throw new Error('Request timed out while starting scoring job - backend may be slow or unreachable');
+      }
+      throw error;
+    }
   }
 
   async startConversionJobAsync(actionItems: ActionItem[]): Promise<{ jobId: string; actionItemCount: number }> {
     if (!this.deviceToken) await this.authenticate();
     const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
     console.log('[MCP] Starting async conversion for', actionItems.length, 'action items');
-    const response = await fetch(`${this.baseUrl}/api/ai/convert-action-items`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.deviceToken}`,
-        'Content-Type': 'application/json',
-        'X-Device-ID': deviceId,
-      },
-      body: JSON.stringify({
-        deviceId: deviceId,
-        actionItems,
-        conversionMode: 'adhd-optimized',
-        breakdownComplexTasks: true,
-        maxTasksPerItem: 5,
-      }),
-    });
-    if (!response.ok) throw new Error(`Conversion failed: ${response.statusText}`);
-    const jobData = await response.json() as { jobId?: string };
-    if (!jobData.jobId) throw new Error('No jobId returned from conversion endpoint');
-    return { jobId: jobData.jobId, actionItemCount: actionItems.length };
+    try {
+      const response = await this.fetchWithTimeout(`${this.baseUrl}/api/ai/convert-action-items`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.deviceToken}`,
+          'Content-Type': 'application/json',
+          'X-Device-ID': deviceId,
+        },
+        body: JSON.stringify({
+          deviceId: deviceId,
+          actionItems,
+          conversionMode: 'adhd-optimized',
+          breakdownComplexTasks: true,
+          maxTasksPerItem: 5,
+        }),
+      });
+      if (!response.ok) throw new Error(`Conversion failed: ${response.statusText}`);
+      const jobData = await response.json() as { jobId?: string };
+      if (!jobData.jobId) throw new Error('No jobId returned from conversion endpoint');
+      return { jobId: jobData.jobId, actionItemCount: actionItems.length };
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        throw new Error('Request timed out while starting conversion job - backend may be slow or unreachable');
+      }
+      throw error;
+    }
   }
 
   async scoreTasks(
@@ -701,14 +735,17 @@ export class AiDDBackendClient extends EventEmitter {
       if (options.order) params.append('order', options.order);
       if (options.limit) params.append('limit', options.limit.toString());
       if (options.offset) params.append('offset', options.offset.toString());
-      const response = await fetch(`${this.baseUrl}/api/actionItems?${params.toString()}`, {
+      const response = await this.fetchWithTimeout(`${this.baseUrl}/api/actionItems?${params.toString()}`, {
         method: 'GET',
         headers: { 'Authorization': `Bearer ${this.deviceToken}`, 'Content-Type': 'application/json' },
       });
       if (!response.ok) throw new Error(`Failed to list action items: ${response.statusText}`);
       const data = await response.json() as { actionItems?: ActionItem[] };
       return data.actionItems || [];
-    } catch (error) {
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        throw new Error('Request timed out while listing action items - backend may be slow or unreachable');
+      }
       this.emit('error', { type: 'listActionItems', error });
       throw error;
     }
@@ -737,14 +774,17 @@ export class AiDDBackendClient extends EventEmitter {
       if (options.order) params.append('order', options.order);
       if (options.limit) params.append('limit', options.limit.toString());
       if (options.offset) params.append('offset', options.offset.toString());
-      const response = await fetch(`${this.baseUrl}/api/tasks?${params.toString()}`, {
+      const response = await this.fetchWithTimeout(`${this.baseUrl}/api/tasks?${params.toString()}`, {
         method: 'GET',
         headers: { 'Authorization': `Bearer ${this.deviceToken}`, 'Content-Type': 'application/json' },
       });
       if (!response.ok) throw new Error(`Failed to list tasks: ${response.statusText}`);
       const data = await response.json() as { tasks?: any[] };
       return data.tasks || [];
-    } catch (error) {
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        throw new Error('Request timed out while listing tasks - backend may be slow or unreachable');
+      }
       this.emit('error', { type: 'listTasks', error });
       throw error;
     }
