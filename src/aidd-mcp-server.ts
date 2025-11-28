@@ -338,25 +338,25 @@ export class AiDDMCPServer {
       },
       {
         name: 'convert_to_tasks',
-        description: 'Convert action items to ADHD-optimized tasks using AiDD AI processing. Waits for completion and returns results.',
+        description: 'Convert action items to ADHD-optimized tasks. Submits a background AI job and returns immediately with a job ID. Tell user to check back in 5 minutes for results via list_tasks.',
         inputSchema: {
           type: 'object',
           properties: {
             actionItemIds: { type: 'array', items: { type: 'string' }, description: 'Specific action item IDs to convert (leave empty for all)' },
             breakdownMode: { type: 'string', enum: ['simple', 'adhd-optimized', 'detailed'], description: 'Task breakdown mode (default: adhd-optimized)' },
-            waitForCompletion: { type: 'boolean', description: 'Wait for conversion to complete (default: false for background processing).' },
+            waitForCompletion: { type: 'boolean', description: 'AVOID using true - causes timeouts. Default false returns immediately.' },
           },
         },
       },
       {
         name: 'score_tasks',
-        description: 'Score all tasks using AiDD AI for optimal ADHD-friendly prioritization. Waits for completion and returns scored tasks.',
+        description: 'Score tasks for ADHD-friendly prioritization. Submits a background AI job and returns immediately with a job ID. Tell user to check back in 5 minutes for results via list_tasks.',
         inputSchema: {
           type: 'object',
           properties: {
             considerCurrentEnergy: { type: 'boolean', description: 'Consider current energy levels (default: true)' },
             timeOfDay: { type: 'string', enum: ['morning', 'afternoon', 'evening', 'auto'], description: 'Time of day for optimization (default: auto)' },
-            waitForCompletion: { type: 'boolean', description: 'Wait for scoring to complete (default: false for background processing).' },
+            waitForCompletion: { type: 'boolean', description: 'AVOID using true - causes timeouts. Default false returns immediately.' },
           },
         },
       },

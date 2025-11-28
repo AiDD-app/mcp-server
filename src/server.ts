@@ -131,6 +131,18 @@ app.get('/oauth/authorize', (req, res) => {
   if (scope) {
     backendAuthUrl.searchParams.append('scope', scope as string);
   }
+  // Forward PKCE parameters to backend for proper OAuth 2.0 PKCE validation
+  if (code_challenge) {
+    backendAuthUrl.searchParams.append('code_challenge', code_challenge as string);
+  }
+  if (code_challenge_method) {
+    backendAuthUrl.searchParams.append('code_challenge_method', code_challenge_method as string);
+  }
+
+  console.log('🔐 OAuth authorize: forwarding PKCE params:', {
+    code_challenge: code_challenge ? 'present' : 'missing',
+    code_challenge_method
+  });
 
   res.redirect(backendAuthUrl.toString());
 });
@@ -246,7 +258,7 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     service: 'AiDD MCP Web Connector',
-    version: '4.3.4',
+    version: '4.3.6',
     buildTimestamp: process.env.BUILD_TIMESTAMP || 'unknown',
     toolCount: 20,
     timestamp: new Date().toISOString(),
@@ -307,7 +319,7 @@ app.get('/', (req, res) => {
   res.setHeader('X-MCP-Transport', 'sse');
   res.json({
     name: 'AiDD MCP Web Connector',
-    version: '4.3.4',
+    version: '4.3.6',
     description: 'ADHD-optimized productivity platform with AI-powered task management',
     icon: `${BASE_URL}/icon.png`,
     endpoints: {
@@ -344,7 +356,7 @@ app.get('/mcp', (req, res) => {
   res.setHeader('X-MCP-Transport', 'sse');
   res.json({
     name: 'AiDD',
-    version: '4.3.4',
+    version: '4.3.6',
     protocol: 'mcp',
     protocolVersion: '2024-11-05',
     transport: 'sse',

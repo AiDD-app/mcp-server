@@ -18,6 +18,11 @@ interface OAuthConfig {
   scope?: string;
 }
 
+// Claude MCP client uses port 6274 for OAuth callbacks
+const CLAUDE_OAUTH_CALLBACK_PORT = 6274;
+// Fallback ports if 6274 is unavailable
+const FALLBACK_PORTS = [6274, 6275, 3001, 0];
+
 export class OAuthServer {
   private server?: http.Server;
   private port: number = 0;
@@ -48,7 +53,8 @@ export class OAuthServer {
       this.server = http.createServer(async (req, res) => {
         const url = new URL(req.url!, `http://localhost:${this.port}`);
 
-        if (url.pathname === '/callback') {
+        // Handle both /callback and /oauth/callback paths for Claude compatibility
+        if (url.pathname === '/callback' || url.pathname === '/oauth/callback' || url.pathname === '/oauth/callback/debug') {
           // Handle OAuth callback
           const code = url.searchParams.get('code');
           const state = url.searchParams.get('state');
@@ -178,15 +184,44 @@ export class OAuthServer {
         }
       });
 
-      // Find available port
-      this.server.listen(0, '127.0.0.1', () => {
-        const address = this.server!.address();
-        this.port = (address as any).port;
-
-        // Open browser for authentication
-        this.openAuthUrl();
-      });
+      // Try Claude's preferred port first (6274), then fallbacks
+      await this.tryListenOnPorts(FALLBACK_PORTS);
     });
+  }
+
+  /**
+   * Try to listen on preferred ports in order
+   */
+  private async tryListenOnPorts(ports: number[]): Promise<void> {
+    for (const port of ports) {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          this.server!.once('error', (err: any) => {
+            if (err.code === 'EADDRINUSE') {
+              console.error(`Port ${port} in use, trying next...`);
+              reject(err);
+            } else {
+              reject(err);
+            }
+          });
+
+          this.server!.listen(port, '127.0.0.1', () => {
+            const address = this.server!.address();
+            this.port = (address as any).port;
+            console.error(`OAuth callback server listening on port ${this.port}`);
+            resolve();
+          });
+        });
+
+        // Successfully bound to port, open browser
+        this.openAuthUrl();
+        return;
+      } catch {
+        // Try next port
+        continue;
+      }
+    }
+    throw new Error('Could not bind to any available port');
   }
 
   /**
@@ -197,7 +232,8 @@ export class OAuthServer {
 
     authUrl.searchParams.append('response_type', 'code');
     authUrl.searchParams.append('client_id', 'aidd-mcp-client');
-    authUrl.searchParams.append('redirect_uri', `http://localhost:${this.port}/callback`);
+    // Use Claude-compatible callback path
+    authUrl.searchParams.append('redirect_uri', `http://localhost:${this.port}/oauth/callback`);
     authUrl.searchParams.append('state', this.state);
     authUrl.searchParams.append('code_challenge', this.codeChallenge!);
     authUrl.searchParams.append('code_challenge_method', 'S256');
@@ -233,7 +269,7 @@ export class OAuthServer {
       body: JSON.stringify({
         grant_type: 'authorization_code',
         code: code,
-        redirect_uri: `http://localhost:${this.port}/callback`,
+        redirect_uri: `http://localhost:${this.port}/oauth/callback`,
         client_id: 'aidd-mcp-client',
         code_verifier: this.codeVerifier,
       }),
