@@ -5,7 +5,7 @@ Thank you for reviewing the AiDD MCP Web Connector! We've created a dedicated te
 ## Test Account Credentials
 
 **Email**: `[TEST_EMAIL_REDACTED]`
-**Password**: `REDACTED`
+**Password**: `[REDACTED]`
 
 **Subscription**: **PREMIUM** (full access to all features, unlimited rate limits)
 
@@ -25,7 +25,7 @@ Thank you for reviewing the AiDD MCP Web Connector! We've created a dedicated te
 2. A browser window will open to the AiDD sign-in page
 3. Sign in using the test credentials above:
    - **Email**: `[TEST_EMAIL_REDACTED]`
-   - **Password**: `REDACTED`
+   - **Password**: `[REDACTED]`
 4. Click **"Authorize"** to grant access
 5. You'll be redirected back to Claude
 6. Connection established! ✅

@@ -15,7 +15,7 @@
 Test account has been created and verified on production backend:
 
 - **Email**: `[TEST_EMAIL_REDACTED]`
-- **Password**: `REDACTED`
+- **Password**: `[REDACTED]`
 - **User ID**: `user_bec087cab6e23168aa0cf0bcd50b4b69`
 - **Subscription**: PREMIUM (full access)
 - **Backend URL**: `https://aidd-backend-prod-739193356129.us-central1.run.app`

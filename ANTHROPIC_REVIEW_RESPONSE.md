@@ -25,7 +25,7 @@ Thank you for reviewing the AiDD MCP Web Connector for inclusion in the Anthropi
 
 **Test Account**:
 - **Email**: `[TEST_EMAIL_REDACTED]`
-- **Password**: `REDACTED`
+- **Password**: `[REDACTED]`
 - **Subscription**: PREMIUM (full access, unlimited rate limits)
 - **Status**: ✅ Active and ready for testing
 

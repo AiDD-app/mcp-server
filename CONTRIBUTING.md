@@ -162,7 +162,7 @@ For local development, you can test changes with Claude Desktop:
 
 Use the test account documented in `TEST_CREDENTIALS.md`:
 - Email: `[TEST_EMAIL_REDACTED]`
-- Password: `REDACTED`
+- Password: `[REDACTED]`
 
 ## Submitting Changes
 

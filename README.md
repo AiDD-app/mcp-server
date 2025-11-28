@@ -3,7 +3,7 @@
 **Official AiDD MCP Web Connector** - ADHD-optimized productivity platform accessible from Claude web, mobile, and desktop.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-4.1.1-blue.svg)](https://github.com/aidd-app/mcp-server)
+[![Version](https://img.shields.io/badge/version-4.3.7-blue.svg)](https://github.com/aidd-app/mcp-server)
 
 ## 🌐 Universal Access
 
@@ -446,7 +446,7 @@ A dedicated test account is available for Anthropic MCP review:
 | Field | Value |
 |-------|-------|
 | Email | `[TEST_EMAIL_REDACTED]` |
-| Password | `REDACTED` |
+| Password | `[REDACTED]` |
 | Subscription | PREMIUM (unlimited) |
 | Status | ✅ Active |
 
@@ -517,6 +517,14 @@ MIT © AiDD Team
 ---
 
 ## Changelog
+
+### v4.3.7 (2025-11-28)
+- 🔒 **Security**: Added MCP safety annotations to all 20 tools
+  - `readOnlyHint: true` for read-only operations (list_*, read_*, status)
+  - `destructiveHint: true` for delete operations (delete_notes, delete_action_items, delete_tasks)
+  - `readOnlyHint: false, destructiveHint: false` for write operations
+- 🔐 **OAuth**: Added Claude callback URLs to allowlist (localhost:6274, claude.ai, claude.com)
+- 🌐 **HEAD**: Added HEAD request handlers for OAuth endpoints
 
 ### v4.1.1 (2025-11-25)
 - ✏️ **New**: `update_note` - Update existing notes (title, content, tags, category)

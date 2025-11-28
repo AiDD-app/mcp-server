@@ -230,6 +230,7 @@ export class AiDDMCPServer {
       {
         name: 'create_note',
         description: 'Create a new note in your AiDD account',
+        annotations: { readOnlyHint: false, destructiveHint: false },
         inputSchema: {
           type: 'object',
           properties: {
@@ -268,6 +269,7 @@ export class AiDDMCPServer {
       {
         name: 'create_action_item',
         description: 'Create a new action item in your AiDD account',
+        annotations: { readOnlyHint: false, destructiveHint: false },
         inputSchema: {
           type: 'object',
           properties: {
@@ -284,6 +286,7 @@ export class AiDDMCPServer {
       {
         name: 'extract_action_items',
         description: 'Extract action items from notes or text using AiDD AI processing',
+        annotations: { readOnlyHint: false, destructiveHint: false },
         inputSchema: {
           type: 'object',
           properties: {
@@ -322,6 +325,7 @@ export class AiDDMCPServer {
       {
         name: 'create_task',
         description: 'Create a new task in your AiDD account',
+        annotations: { readOnlyHint: false, destructiveHint: false },
         inputSchema: {
           type: 'object',
           properties: {
@@ -339,6 +343,7 @@ export class AiDDMCPServer {
       {
         name: 'convert_to_tasks',
         description: 'Convert action items to ADHD-optimized tasks. Submits a background AI job and returns immediately with a job ID. Tell user to check back in 5 minutes for results via list_tasks.',
+        annotations: { readOnlyHint: false, destructiveHint: false },
         inputSchema: {
           type: 'object',
           properties: {
@@ -351,6 +356,7 @@ export class AiDDMCPServer {
       {
         name: 'score_tasks',
         description: 'Score tasks for ADHD-friendly prioritization. Submits a background AI job and returns immediately with a job ID. Tell user to check back in 5 minutes for results via list_tasks.',
+        annotations: { readOnlyHint: false, destructiveHint: false },
         inputSchema: {
           type: 'object',
           properties: {
@@ -363,6 +369,7 @@ export class AiDDMCPServer {
       {
         name: 'update_note',
         description: 'Update an existing note in your AiDD account',
+        annotations: { readOnlyHint: false, destructiveHint: false },
         inputSchema: {
           type: 'object',
           properties: {
@@ -378,6 +385,7 @@ export class AiDDMCPServer {
       {
         name: 'delete_notes',
         description: 'Delete one or more notes from your AiDD account',
+        annotations: { readOnlyHint: false, destructiveHint: true },
         inputSchema: {
           type: 'object',
           properties: { noteIds: { type: 'array', items: { type: 'string' }, description: 'IDs of the notes to delete' } },
@@ -387,6 +395,7 @@ export class AiDDMCPServer {
       {
         name: 'update_action_item',
         description: 'Update an existing action item in your AiDD account',
+        annotations: { readOnlyHint: false, destructiveHint: false },
         inputSchema: {
           type: 'object',
           properties: {
@@ -405,6 +414,7 @@ export class AiDDMCPServer {
       {
         name: 'delete_action_items',
         description: 'Delete one or more action items from your AiDD account',
+        annotations: { readOnlyHint: false, destructiveHint: true },
         inputSchema: {
           type: 'object',
           properties: { actionItemIds: { type: 'array', items: { type: 'string' }, description: 'IDs of the action items to delete' } },
@@ -414,6 +424,7 @@ export class AiDDMCPServer {
       {
         name: 'update_task',
         description: 'Update an existing task in your AiDD account',
+        annotations: { readOnlyHint: false, destructiveHint: false },
         inputSchema: {
           type: 'object',
           properties: {
@@ -433,6 +444,7 @@ export class AiDDMCPServer {
       {
         name: 'delete_tasks',
         description: 'Delete one or more tasks from your AiDD account',
+        annotations: { readOnlyHint: false, destructiveHint: true },
         inputSchema: {
           type: 'object',
           properties: { taskIds: { type: 'array', items: { type: 'string' }, description: 'IDs of the tasks to delete' } },
