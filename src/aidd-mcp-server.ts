@@ -761,50 +761,45 @@ export class AiDDMCPServer {
       const usageCheck = await this.checkOperationLimit('conversion');
       if (!usageCheck.allowed) return this.formatLimitReachedResponse(usageCheck);
 
-      const { actionItemIds, breakdownMode = 'adhd-optimized', waitForCompletion = false, skipDeduplication = false } = args;
-      let actionItems: any[] = [];
-      let skippedCount = 0;
-      let deduplicationSkipped = false;
+      const { actionItemIds, breakdownMode = 'adhd-optimized', waitForCompletion = false } = args;
 
-      // Try to get existing tasks for deduplication, but don't block on failure
-      let convertedActionItemIds = new Set<string>();
-      if (!skipDeduplication) {
-        try {
-          const existingTasks = await this.backendClient.listTasks({});
-          convertedActionItemIds = new Set(existingTasks.filter((task: any) => task.actionItemId).map((task: any) => task.actionItemId));
-        } catch (dedupeError) {
-          console.warn('[MCP] Deduplication check failed, proceeding without it:', dedupeError);
-          deduplicationSkipped = true;
+      // FAST PATH: If no specific IDs provided, use convertAll (backend handles everything)
+      if (!actionItemIds || actionItemIds.length === 0) {
+        if (!waitForCompletion) {
+          console.log('[MCP] Using fast convertAll path - backend handles fetching and deduplication');
+          const result = await this.backendClient.startConversionJobAllAsync();
+
+          // Handle "all already converted" case
+          if (!result.jobId) {
+            return { content: [{ type: 'text', text: `✅ **All Action Items Already Converted**\n\n${result.message}\n\nTo convert specific action items again, use the \`actionItemIds\` parameter.` } as TextContent] };
+          }
+
+          let response = `🚀 **AI Conversion Started**\n\n${result.message}\n\n**What's happening:**\n• AI is breaking down action items into manageable tasks\n• Tasks are being optimized for ADHD-friendly execution\n• Each action item may generate multiple subtasks\n\n**Check your results:**\n⏱️ **Check back in ~5 minutes** - use the \`list_tasks\` tool to see your converted tasks.\n\nJob ID: \`${result.jobId}\``;
+          response = this.appendUsageWarning(response, usageCheck);
+          return { content: [{ type: 'text', text: response.trim() } as TextContent] };
         }
       }
 
-      if (!actionItemIds || actionItemIds.length === 0) {
-        const allActionItems = await this.backendClient.listActionItems({});
-        const originalCount = allActionItems.length;
-        if (deduplicationSkipped || skipDeduplication) {
-          actionItems = allActionItems;
-        } else {
-          actionItems = allActionItems.filter((item: any) => !convertedActionItemIds.has(item.id));
-          skippedCount = originalCount - actionItems.length;
-        }
-      } else {
+      // SPECIFIC IDs PATH: Fetch specific action items (slower, but needed for targeted conversion)
+      let actionItems: any[] = [];
+      if (actionItemIds && actionItemIds.length > 0) {
         for (const id of actionItemIds) {
-          if (deduplicationSkipped || skipDeduplication || !convertedActionItemIds.has(id)) {
+          try {
             const item = await this.backendClient.readActionItem(id);
             actionItems.push(item);
-          } else {
-            skippedCount++;
+          } catch (err) {
+            console.warn(`[MCP] Could not fetch action item ${id}:`, err);
           }
         }
       }
 
       if (actionItems.length === 0) {
-        return { content: [{ type: 'text', text: `✅ **All Action Items Already Converted**\n\nAll ${skippedCount} action items have already been converted to tasks.\nNo new processing needed.\n\nTo convert specific action items again, use the \`actionItemIds\` parameter with specific action item IDs.` } as TextContent] };
+        return { content: [{ type: 'text', text: `❌ No action items found to convert.\n\nEither all specified action items were not found, or you didn't specify any IDs.` } as TextContent] };
       }
 
       if (!waitForCompletion) {
         const { jobId, actionItemCount } = await this.backendClient.startConversionJobAsync(actionItems);
-        let response = `🚀 **AI Conversion Started**\n\nConverting ${actionItemCount} action items to ADHD-optimized tasks in the background.\n${skippedCount > 0 ? `Skipped ${skippedCount} action items (already converted).` : ''}\n\n**What's happening:**\n• AI is breaking down action items into manageable tasks\n• Tasks are being optimized for ADHD-friendly execution\n• Each action item may generate multiple subtasks\n\n**Check your results:**\n⏱️ **Check back in ~5 minutes** - use the \`list_tasks\` tool to see your converted tasks.\n\nJob ID: \`${jobId}\``;
+        let response = `🚀 **AI Conversion Started**\n\nConverting ${actionItemCount} action items to ADHD-optimized tasks in the background.\n\n**What's happening:**\n• AI is breaking down action items into manageable tasks\n• Tasks are being optimized for ADHD-friendly execution\n• Each action item may generate multiple subtasks\n\n**Check your results:**\n⏱️ **Check back in ~5 minutes** - use the \`list_tasks\` tool to see your converted tasks.\n\nJob ID: \`${jobId}\``;
         response = this.appendUsageWarning(response, usageCheck);
         return { content: [{ type: 'text', text: response.trim() } as TextContent] };
       }
@@ -820,7 +815,7 @@ export class AiDDMCPServer {
         }
       }
 
-      let response = `✨ **Tasks Created (ADHD-Optimized)**\n\n**Summary:**\n• Action items converted: ${actionItems.length}\n${skippedCount > 0 ? `• Skipped: ${skippedCount} action items (already converted)` : ''}\n• Tasks created: ${tasks.length}\n• Tasks saved: ${savedCount}\n• Breakdown mode: ${breakdownMode}\n• Average tasks per item: ${(tasks.length / actionItems.length).toFixed(1)}\n\n**Created Tasks:**\n${tasks.slice(0, 15).map((task: any, i: number) => `${i + 1}. **${task.title}**\n   • Time: ${task.estimatedTime} min\n   • Energy: ${task.energyRequired}\n   • Type: ${task.taskType}\n   ${task.dependsOnTaskOrders && task.dependsOnTaskOrders.length > 0 ? `• Depends on: Task ${task.dependsOnTaskOrders.join(', ')}` : ''}`).join('\n')}\n${tasks.length > 15 ? `\n... and ${tasks.length - 15} more tasks` : ''}\n\n**Task Breakdown:**\n• Quick wins: ${tasks.filter((t: any) => t.taskType === 'quick_win').length}\n• Focus required: ${tasks.filter((t: any) => t.taskType === 'focus_required').length}\n• Collaborative: ${tasks.filter((t: any) => t.taskType === 'collaborative').length}\n• Creative: ${tasks.filter((t: any) => t.taskType === 'creative').length}\n• Administrative: ${tasks.filter((t: any) => t.taskType === 'administrative').length}\n\n✅ ${savedCount} tasks have been saved to your AiDD account.`;
+      let response = `✨ **Tasks Created (ADHD-Optimized)**\n\n**Summary:**\n• Action items converted: ${actionItems.length}\n• Tasks created: ${tasks.length}\n• Tasks saved: ${savedCount}\n• Breakdown mode: ${breakdownMode}\n• Average tasks per item: ${(tasks.length / actionItems.length).toFixed(1)}\n\n**Created Tasks:**\n${tasks.slice(0, 15).map((task: any, i: number) => `${i + 1}. **${task.title}**\n   • Time: ${task.estimatedTime} min\n   • Energy: ${task.energyRequired}\n   • Type: ${task.taskType}\n   ${task.dependsOnTaskOrders && task.dependsOnTaskOrders.length > 0 ? `• Depends on: Task ${task.dependsOnTaskOrders.join(', ')}` : ''}`).join('\n')}\n${tasks.length > 15 ? `\n... and ${tasks.length - 15} more tasks` : ''}\n\n**Task Breakdown:**\n• Quick wins: ${tasks.filter((t: any) => t.taskType === 'quick_win').length}\n• Focus required: ${tasks.filter((t: any) => t.taskType === 'focus_required').length}\n• Collaborative: ${tasks.filter((t: any) => t.taskType === 'collaborative').length}\n• Creative: ${tasks.filter((t: any) => t.taskType === 'creative').length}\n• Administrative: ${tasks.filter((t: any) => t.taskType === 'administrative').length}\n\n✅ ${savedCount} tasks have been saved to your AiDD account.`;
       response = this.appendUsageWarning(response, usageCheck);
       return { content: [{ type: 'text', text: response } as TextContent] };
     } catch (error) {

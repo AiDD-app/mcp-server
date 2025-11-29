@@ -494,6 +494,45 @@ export class AiDDBackendClient extends EventEmitter {
     }
   }
 
+  /**
+   * Start conversion job using convertAll flag - backend fetches action items directly
+   * This is MUCH faster than fetching action items client-side first
+   */
+  async startConversionJobAllAsync(): Promise<{ jobId: string; message: string }> {
+    if (!this.deviceToken) await this.authenticate();
+    const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
+    console.log('[MCP] Starting async conversion with convertAll=true (backend fetches action items)');
+    try {
+      const response = await this.fetchWithTimeout(`${this.baseUrl}/api/ai/convert-action-items`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.deviceToken}`,
+          'Content-Type': 'application/json',
+          'X-Device-ID': deviceId,
+        },
+        body: JSON.stringify({
+          deviceId: deviceId,
+          convertAll: true,  // Backend fetches action items from Firestore
+          conversionMode: 'adhd-optimized',
+          breakdownComplexTasks: true,
+          maxTasksPerItem: 5,
+        }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(`Conversion failed: ${response.statusText} - ${errorData.message || ''}`);
+      }
+      const jobData = await response.json() as { jobId?: string; message?: string };
+      if (!jobData.jobId) throw new Error('No jobId returned from conversion endpoint');
+      return { jobId: jobData.jobId, message: jobData.message || 'Conversion started' };
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        throw new Error('Request timed out while starting conversion job - backend may be slow or unreachable');
+      }
+      throw error;
+    }
+  }
+
   async scoreTasks(
     tasks: ConvertedTask[],
     onProgress?: (progress: number, message: string) => void
