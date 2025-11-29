@@ -47,8 +47,8 @@ interface ScoredTask {
   recommendation: string;
 }
 
-// Default timeout for API calls (30 seconds)
-const API_TIMEOUT_MS = 30000;
+// Default timeout for API calls (60 seconds - increased from 30s to handle slow backend)
+const API_TIMEOUT_MS = 60000;
 
 export class AiDDBackendClient extends EventEmitter {
   private baseUrl = 'https://aidd-backend-prod-739193356129.us-central1.run.app';

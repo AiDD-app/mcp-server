@@ -350,6 +350,7 @@ export class AiDDMCPServer {
             actionItemIds: { type: 'array', items: { type: 'string' }, description: 'Specific action item IDs to convert (leave empty for all)' },
             breakdownMode: { type: 'string', enum: ['simple', 'adhd-optimized', 'detailed'], description: 'Task breakdown mode (default: adhd-optimized)' },
             waitForCompletion: { type: 'boolean', description: 'AVOID using true - causes timeouts. Default false returns immediately.' },
+            skipDeduplication: { type: 'boolean', description: 'Skip checking for already-converted items (faster, may create duplicates). Use if timeouts occur.' },
           },
         },
       },
@@ -760,21 +761,35 @@ export class AiDDMCPServer {
       const usageCheck = await this.checkOperationLimit('conversion');
       if (!usageCheck.allowed) return this.formatLimitReachedResponse(usageCheck);
 
-      const { actionItemIds, breakdownMode = 'adhd-optimized', waitForCompletion = false } = args;
+      const { actionItemIds, breakdownMode = 'adhd-optimized', waitForCompletion = false, skipDeduplication = false } = args;
       let actionItems: any[] = [];
       let skippedCount = 0;
+      let deduplicationSkipped = false;
 
-      const existingTasks = await this.backendClient.listTasks({});
-      const convertedActionItemIds = new Set(existingTasks.filter((task: any) => task.actionItemId).map((task: any) => task.actionItemId));
+      // Try to get existing tasks for deduplication, but don't block on failure
+      let convertedActionItemIds = new Set<string>();
+      if (!skipDeduplication) {
+        try {
+          const existingTasks = await this.backendClient.listTasks({});
+          convertedActionItemIds = new Set(existingTasks.filter((task: any) => task.actionItemId).map((task: any) => task.actionItemId));
+        } catch (dedupeError) {
+          console.warn('[MCP] Deduplication check failed, proceeding without it:', dedupeError);
+          deduplicationSkipped = true;
+        }
+      }
 
       if (!actionItemIds || actionItemIds.length === 0) {
         const allActionItems = await this.backendClient.listActionItems({});
         const originalCount = allActionItems.length;
-        actionItems = allActionItems.filter((item: any) => !convertedActionItemIds.has(item.id));
-        skippedCount = originalCount - actionItems.length;
+        if (deduplicationSkipped || skipDeduplication) {
+          actionItems = allActionItems;
+        } else {
+          actionItems = allActionItems.filter((item: any) => !convertedActionItemIds.has(item.id));
+          skippedCount = originalCount - actionItems.length;
+        }
       } else {
         for (const id of actionItemIds) {
-          if (!convertedActionItemIds.has(id)) {
+          if (deduplicationSkipped || skipDeduplication || !convertedActionItemIds.has(id)) {
             const item = await this.backendClient.readActionItem(id);
             actionItems.push(item);
           } else {
@@ -809,7 +824,13 @@ export class AiDDMCPServer {
       response = this.appendUsageWarning(response, usageCheck);
       return { content: [{ type: 'text', text: response } as TextContent] };
     } catch (error) {
-      return { content: [{ type: 'text', text: `❌ Error converting to tasks: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      const isTimeout = errorMsg.includes('timed out') || errorMsg.includes('timeout');
+      let response = `❌ Error converting to tasks: ${errorMsg}`;
+      if (isTimeout) {
+        response += `\n\n**💡 Try these workarounds:**\n1. Use \`skipDeduplication: true\` to skip the slow duplicate check\n2. Specify specific \`actionItemIds\` instead of converting all\n3. Try again in a few minutes when the backend is less busy`;
+      }
+      return { content: [{ type: 'text', text: response } as TextContent] };
     }
   }
 
