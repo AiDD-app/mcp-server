@@ -125,7 +125,7 @@ export class GA4Analytics {
   }
 
   /**
-   * Track AI processing through MCP
+   * Track AI processing through MCP (generic)
    */
   async trackAIProcessing(action: string, itemCount: number, processingTime: number, success: boolean, options?: EventOptions): Promise<void> {
     await this.sendEvent('mcp_ai_processing', {
@@ -133,6 +133,64 @@ export class GA4Analytics {
       ai_item_count: itemCount,
       ai_processing_time_ms: processingTime,
       ai_success: success,
+    }, options);
+  }
+
+  /**
+   * Track AI extraction - action items from notes (matches Web/iOS ai_extraction_completed)
+   */
+  async trackAIExtraction(data: {
+    notes_count: number;
+    action_items_extracted: number;
+    model: string;
+    processing_time: number;
+    success: boolean;
+  }, options?: EventOptions): Promise<void> {
+    await this.sendEvent('ai_extraction_completed', {
+      event_category: 'ai_processing',
+      notes_count: data.notes_count,
+      action_items_extracted: data.action_items_extracted,
+      model: data.model,
+      processing_time: data.processing_time,
+      success: data.success,
+    }, options);
+  }
+
+  /**
+   * Track AI conversion - action items to tasks (matches Web/iOS ai_conversion_completed)
+   */
+  async trackAIConversion(data: {
+    action_items_count: number;
+    tasks_generated: number;
+    model: string;
+    processing_time: number;
+    success: boolean;
+  }, options?: EventOptions): Promise<void> {
+    await this.sendEvent('ai_conversion_completed', {
+      event_category: 'ai_processing',
+      action_items_count: data.action_items_count,
+      tasks_generated: data.tasks_generated,
+      model: data.model,
+      processing_time: data.processing_time,
+      success: data.success,
+    }, options);
+  }
+
+  /**
+   * Track AI scoring - task prioritization (matches Web/iOS ai_scoring_completed)
+   */
+  async trackAIScoring(data: {
+    tasks_count: number;
+    model: string;
+    processing_time: number;
+    success: boolean;
+  }, options?: EventOptions): Promise<void> {
+    await this.sendEvent('ai_scoring_completed', {
+      event_category: 'ai_processing',
+      tasks_count: data.tasks_count,
+      model: data.model,
+      processing_time: data.processing_time,
+      success: data.success,
     }, options);
   }
 

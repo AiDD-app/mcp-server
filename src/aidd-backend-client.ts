@@ -2,6 +2,7 @@ import fetch from 'node-fetch';
 import { EventEmitter } from 'events';
 import * as crypto from 'crypto';
 import { AuthManager } from './auth-manager.js';
+import { getAnalytics } from './analytics/ga4.js';
 
 interface DeviceAuthResponse {
   deviceToken: string;
@@ -297,6 +298,11 @@ export class AiDDBackendClient extends EventEmitter {
     notes: Array<{ id: string; title: string; content: string }>,
     onProgress?: (progress: number, message: string) => void
   ): Promise<ActionItem[]> {
+    const startTime = Date.now();
+    const analytics = getAnalytics();
+    let success = false;
+    let extractedCount = 0;
+
     try {
       const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
       onProgress?.(5, 'Creating extraction job...');
@@ -321,22 +327,41 @@ export class AiDDBackendClient extends EventEmitter {
       if (!response.ok) throw new Error(`Extraction failed: ${response.statusText}`);
       onProgress?.(10, 'Job created, processing...');
       if (response.headers.get('content-type')?.includes('text/event-stream')) {
-        return await this.handleSSEResponse(response, 'extraction');
+        const result = await this.handleSSEResponse(response, 'extraction');
+        extractedCount = result.length;
+        success = true;
+        return result;
       }
       const jobData = await response.json() as { jobId?: string; actionItems?: ActionItem[] };
       if (jobData.actionItems && jobData.actionItems.length > 0) {
         onProgress?.(100, 'Extraction complete (cached)');
+        extractedCount = jobData.actionItems.length;
+        success = true;
         return jobData.actionItems;
       }
       if (jobData.jobId) {
-        return await this.pollJobWithProgress<ActionItem[]>(
+        const result = await this.pollJobWithProgress<ActionItem[]>(
           jobData.jobId, deviceId, 'extraction', onProgress, this.parseExtractionResult.bind(this)
         );
+        extractedCount = result.length;
+        success = true;
+        return result;
       }
+      success = true;
       return [];
     } catch (error) {
       this.emit('error', { type: 'extraction', error });
       throw error;
+    } finally {
+      // Track AI extraction analytics (matches Web/iOS ai_extraction_completed event)
+      const processingTime = Date.now() - startTime;
+      await analytics.trackAIExtraction({
+        notes_count: notes.length,
+        action_items_extracted: extractedCount,
+        model: 'gemini-2.5-flash',
+        processing_time: processingTime,
+        success: success,
+      }, { userId: this.userId });
     }
   }
 
@@ -503,6 +528,11 @@ export class AiDDBackendClient extends EventEmitter {
     actionItems: ActionItem[],
     onProgress?: (progress: number, message: string) => void
   ): Promise<ConvertedTask[]> {
+    const startTime = Date.now();
+    const analytics = getAnalytics();
+    let success = false;
+    let tasksGenerated = 0;
+
     try {
       const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
       onProgress?.(5, 'Creating conversion job...');
@@ -524,22 +554,41 @@ export class AiDDBackendClient extends EventEmitter {
       if (!response.ok) throw new Error(`Conversion failed: ${response.statusText}`);
       onProgress?.(10, 'Job created, processing...');
       if (response.headers.get('content-type')?.includes('text/event-stream')) {
-        return await this.handleSSEResponse(response, 'conversion');
+        const result = await this.handleSSEResponse(response, 'conversion');
+        tasksGenerated = result.length;
+        success = true;
+        return result;
       }
       const jobData = await response.json() as { jobId?: string; tasks?: ConvertedTask[] };
       if (jobData.tasks && jobData.tasks.length > 0) {
         onProgress?.(100, 'Conversion complete (cached)');
+        tasksGenerated = jobData.tasks.length;
+        success = true;
         return jobData.tasks;
       }
       if (jobData.jobId) {
-        return await this.pollJobWithProgress<ConvertedTask[]>(
+        const result = await this.pollJobWithProgress<ConvertedTask[]>(
           jobData.jobId, deviceId, 'conversion', onProgress, this.parseConversionResult.bind(this)
         );
+        tasksGenerated = result.length;
+        success = true;
+        return result;
       }
+      success = true;
       return [];
     } catch (error) {
       this.emit('error', { type: 'conversion', error });
       throw error;
+    } finally {
+      // Track AI conversion analytics (matches Web/iOS ai_conversion_completed event)
+      const processingTime = Date.now() - startTime;
+      await analytics.trackAIConversion({
+        action_items_count: actionItems.length,
+        tasks_generated: tasksGenerated,
+        model: 'gemini-2.5-pro',
+        processing_time: processingTime,
+        success: success,
+      }, { userId: this.userId });
     }
   }
 
@@ -714,6 +763,10 @@ export class AiDDBackendClient extends EventEmitter {
     tasks: ConvertedTask[],
     onProgress?: (progress: number, message: string) => void
   ): Promise<ScoredTask[]> {
+    const startTime = Date.now();
+    const analytics = getAnalytics();
+    let success = false;
+
     try {
       const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
       onProgress?.(5, 'Preparing tasks for scoring...');
@@ -750,25 +803,40 @@ export class AiDDBackendClient extends EventEmitter {
       if (!response.ok) throw new Error(`Scoring failed: ${response.statusText}`);
       onProgress?.(15, 'Job created, processing...');
       if (response.headers.get('content-type')?.includes('text/event-stream')) {
-        return await this.handleSSEResponse(response, 'scoring');
+        const result = await this.handleSSEResponse(response, 'scoring');
+        success = true;
+        return result;
       }
       const jobData = await response.json() as { jobId?: string; scoredTasks?: ScoredTask[] };
       if (jobData.scoredTasks && jobData.scoredTasks.length > 0) {
         onProgress?.(100, 'Scoring complete (cached)');
+        success = true;
         return jobData.scoredTasks;
       }
       if (jobData.jobId) {
         const scoringParser = (waitResult: any): ScoredTask[] | null => {
           return this.parseScoringResult(waitResult, taskIdMap);
         };
-        return await this.pollJobWithProgress<ScoredTask[]>(
+        const result = await this.pollJobWithProgress<ScoredTask[]>(
           jobData.jobId, deviceId, 'scoring', onProgress, scoringParser
         );
+        success = true;
+        return result;
       }
+      success = true;
       return [];
     } catch (error) {
       this.emit('error', { type: 'scoring', error });
       throw error;
+    } finally {
+      // Track AI scoring analytics (matches Web/iOS ai_scoring_completed event)
+      const processingTime = Date.now() - startTime;
+      await analytics.trackAIScoring({
+        tasks_count: tasks.length,
+        model: 'gemini-2.5-pro',
+        processing_time: processingTime,
+        success: success,
+      }, { userId: this.userId });
     }
   }
 
