@@ -214,6 +214,8 @@ Updated task: Complete quarterly report
 🗑️ Action Items Deleted
 
 Successfully deleted 3 action items.
+
+🔗 Also deleted 5 derived tasks.
 ```
 
 ### Example 5: Weekly Review and Planning
@@ -281,7 +283,7 @@ presentation while your energy is highest.
 | `read_action_item` | Read specific action item by ID | Read |
 | `extract_action_items` | AI-powered extraction from notes or text | Write |
 | `update_action_item` | Update existing action item (title, priority, due date, etc.) | Write |
-| `delete_action_items` | Delete one or more action items by ID | Destructive |
+| `delete_action_items` | Delete action items and their derived tasks | Destructive |
 
 ### Tasks (6 tools)
 | Tool | Description | Type |
@@ -517,6 +519,12 @@ MIT © AiDD Team
 ---
 
 ## Changelog
+
+### v4.3.18 (2025-11-30)
+
+- 🔗 **Cascade Delete**: `delete_action_items` now automatically deletes all tasks derived from those action items
+  - Prevents orphaned tasks when cleaning up action items
+  - Response shows count of both deleted action items and derived tasks
 
 ### v4.3.7 (2025-11-28)
 - 🔒 **Security**: Added MCP safety annotations to all 20 tools
