@@ -85,7 +85,7 @@ export class BrowserOAuthFlow {
                 userId: userId as string,
                 email: email as string,
                 subscription: (subscription as string) || 'FREE',
-                expiresIn: parseInt(expiresIn as string) || 2592000, // 30 days default
+                expiresIn: parseInt(expiresIn as string) || 3600, // 1 hour default (industry standard)
               });
             } else {
               res.writeHead(400, { 'Content-Type': 'text/html' });

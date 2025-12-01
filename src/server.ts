@@ -209,7 +209,7 @@ app.post('/oauth/token', async (req, res) => {
         access_token: data.access_token,
         refresh_token: data.refresh_token,
         token_type: 'Bearer',
-        expires_in: 2592000, // 30 days
+        expires_in: 3600, // 1 hour (industry standard - refresh token handles session continuity)
         scope: 'profile email tasks notes action_items',
       });
     } else if (grant_type === 'refresh_token') {
@@ -237,8 +237,9 @@ app.post('/oauth/token', async (req, res) => {
       const data = await response.json() as any;
       res.json({
         access_token: data.access_token,
+        refresh_token: data.refresh_token, // Include new refresh token if provided
         token_type: 'Bearer',
-        expires_in: 2592000,
+        expires_in: 3600, // 1 hour (industry standard)
       });
     } else {
       res.status(400).json({ error: 'unsupported_grant_type' });
