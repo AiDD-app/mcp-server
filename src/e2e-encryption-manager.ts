@@ -367,7 +367,7 @@ export class E2EEncryptionManager {
       throw new Error(`Migration status check failed: ${response.status}`);
     }
 
-    return response.json();
+    return await response.json() as MigrationStatus;
   }
 
   /**

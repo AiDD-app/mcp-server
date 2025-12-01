@@ -588,7 +588,7 @@ export class AiDDMCPServer {
       },
       {
         name: 'delete_action_items',
-        description: 'Delete one or more action items from your AiDD account',
+        description: 'Delete one or more action items from your AiDD account. Also deletes any tasks that were derived/converted from these action items.',
         annotations: { readOnlyHint: false, destructiveHint: true },
         inputSchema: {
           type: 'object',
@@ -1264,9 +1264,44 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
     try {
       const { actionItemIds } = args;
       if (!actionItemIds || !Array.isArray(actionItemIds) || actionItemIds.length === 0) throw new Error('Action item IDs array is required');
+
+      // First, find and delete any tasks derived from these action items
+      let deletedTasksCount = 0;
+      try {
+        const allTasks = await this.backendClient.listTasks({ limit: 1000 });
+        const actionItemIdSet = new Set(actionItemIds);
+        const derivedTaskIds = allTasks
+          .filter((task: any) => {
+            // Check both possible field names for the source action item
+            const sourceId = task.sourceActionItemId || task.actionItemId;
+            return sourceId && actionItemIdSet.has(sourceId);
+          })
+          .map((task: any) => task.id);
+
+        if (derivedTaskIds.length > 0) {
+          console.log(`[MCP] Deleting ${derivedTaskIds.length} derived tasks for action items: ${actionItemIds.join(', ')}`);
+          if (derivedTaskIds.length === 1) {
+            await this.backendClient.deleteTask(derivedTaskIds[0]);
+            deletedTasksCount = 1;
+          } else {
+            const taskResult = await this.backendClient.deleteTasks(derivedTaskIds);
+            deletedTasksCount = taskResult.deletedCount || derivedTaskIds.length;
+          }
+        }
+      } catch (taskError) {
+        // Log but don't fail - still proceed with deleting action items
+        console.warn(`[MCP] Warning: Could not delete derived tasks: ${taskError instanceof Error ? taskError.message : 'Unknown error'}`);
+      }
+
+      // Now delete the action items
       const result = actionItemIds.length === 1 ? await this.backendClient.deleteActionItem(actionItemIds[0]) : await this.backendClient.deleteActionItems(actionItemIds);
       const deletedCount = (result as any).deletedCount || 1;
-      const response = `🗑️ **Action Items Deleted**\n\nSuccessfully deleted ${deletedCount} action item${deletedCount > 1 ? 's' : ''}.`;
+
+      // Build response message
+      let response = `🗑️ **Action Items Deleted**\n\nSuccessfully deleted ${deletedCount} action item${deletedCount > 1 ? 's' : ''}.`;
+      if (deletedTasksCount > 0) {
+        response += `\n\n🔗 Also deleted ${deletedTasksCount} derived task${deletedTasksCount > 1 ? 's' : ''}.`;
+      }
       return { content: [{ type: 'text', text: response.trim() } as TextContent] };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ **Error deleting action items:** ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent], isError: true };
