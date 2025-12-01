@@ -19,6 +19,7 @@ import {
   OperationType,
   UsageCheckResult,
 } from './subscription-manager.js';
+import { E2EEncryptionManager, getE2EManager } from './e2e-encryption-manager.js';
 
 export class AiDDMCPServer {
   private server: Server;
@@ -28,9 +29,12 @@ export class AiDDMCPServer {
   private cachedSubscriptionStatus: SubscriptionStatus | null = null;
   private subscriptionCacheExpiry: number = 0;
   private readonly SUBSCRIPTION_CACHE_TTL_MS = 60000; // 1 minute cache
+  private e2eManager: E2EEncryptionManager;
+  private e2eInitialized: boolean = false;
 
   constructor(oauthToken?: string) {
     this.oauthToken = oauthToken;
+    this.e2eManager = getE2EManager();
     console.log(`🔑 Using OAuth token from web connector: ${oauthToken ? 'present' : 'missing'}`);
 
     const BASE_URL = process.env.BASE_URL || 'https://mcp.aidd.app';
@@ -75,6 +79,175 @@ export class AiDDMCPServer {
     this.backendClient.on('error', (data) => {
       console.error(`Backend error: ${data.type} - ${data.error}`);
     });
+  }
+
+  // =============================================================================
+  // E2E ENCRYPTION INITIALIZATION
+  // =============================================================================
+
+  /**
+   * Initialize E2E encryption using the OAuth token
+   * Called automatically when the server starts with an OAuth token
+   */
+  private async initializeE2E(): Promise<void> {
+    if (this.e2eInitialized) {
+      return;
+    }
+
+    const accessToken = this.backendClient.getAccessToken();
+    if (!accessToken || !this.oauthToken) {
+      console.log('[E2E] No OAuth token available, skipping E2E initialization');
+      return;
+    }
+
+    try {
+      // Check if user has E2E encryption set up
+      const status = await this.backendClient.getE2EStatus();
+
+      if (status.hasEncryption) {
+        // Unlock with OAuth token (derive password from token)
+        const unlocked = await this.e2eManager.unlockWithOAuthToken(accessToken, this.oauthToken);
+        if (unlocked) {
+          this.e2eInitialized = true;
+          console.log('[E2E] ✅ E2E encryption unlocked successfully');
+        } else {
+          console.log('[E2E] ⚠️ E2E unlock returned false - data will be backend-encrypted only');
+        }
+      } else {
+        console.log('[E2E] User has not set up E2E encryption - data will be backend-encrypted only');
+      }
+    } catch (error) {
+      console.error('[E2E] Failed to initialize E2E encryption:', error);
+      // Continue without E2E - backend will still encrypt data
+    }
+  }
+
+  /**
+   * Ensure E2E is initialized before operations
+   */
+  private async ensureE2EInitialized(): Promise<void> {
+    if (!this.e2eInitialized && this.oauthToken) {
+      await this.initializeE2E();
+    }
+  }
+
+  /**
+   * Check if E2E encryption is available and enabled
+   */
+  private get e2eEnabled(): boolean {
+    return this.e2eInitialized && this.e2eManager.e2eEnabled;
+  }
+
+  /**
+   * Encrypt sensitive fields for a note before sending to backend
+   */
+  private encryptNoteForSync(note: any): any {
+    if (!this.e2eEnabled) return note;
+
+    return {
+      ...note,
+      encryptedTitle: this.e2eManager.encrypt(note.title),
+      encryptedContent: note.content ? this.e2eManager.encrypt(note.content) : null,
+      encryptedTags: note.tags?.length > 0 ? this.e2eManager.encrypt(note.tags.join(',')) : null,
+      // Clear plaintext fields when E2E enabled
+      title: undefined,
+      content: undefined,
+      tags: undefined,
+    };
+  }
+
+  /**
+   * Decrypt sensitive fields from a note received from backend
+   */
+  private decryptNoteFromSync(note: any): any {
+    if (!this.e2eEnabled) return note;
+    if (!note.encryptedTitle) return note; // Not E2E encrypted
+
+    try {
+      return {
+        ...note,
+        title: this.e2eManager.decrypt(note.encryptedTitle),
+        content: note.encryptedContent ? this.e2eManager.decrypt(note.encryptedContent) : null,
+        tags: note.encryptedTags ? this.e2eManager.decrypt(note.encryptedTags).split(',') : [],
+      };
+    } catch (error) {
+      console.error('[E2E] Failed to decrypt note:', error);
+      return { ...note, title: '[Encrypted - Unable to decrypt]', content: '', tags: [] };
+    }
+  }
+
+  /**
+   * Encrypt sensitive fields for an action item before sending to backend
+   */
+  private encryptActionItemForSync(item: any): any {
+    if (!this.e2eEnabled) return item;
+
+    return {
+      ...item,
+      encryptedTitle: this.e2eManager.encrypt(item.title),
+      encryptedDescription: item.description ? this.e2eManager.encrypt(item.description) : null,
+      encryptedTags: item.tags?.length > 0 ? this.e2eManager.encrypt(item.tags.join(',')) : null,
+      title: undefined,
+      description: undefined,
+      tags: undefined,
+    };
+  }
+
+  /**
+   * Decrypt sensitive fields from an action item received from backend
+   */
+  private decryptActionItemFromSync(item: any): any {
+    if (!this.e2eEnabled) return item;
+    if (!item.encryptedTitle) return item;
+
+    try {
+      return {
+        ...item,
+        title: this.e2eManager.decrypt(item.encryptedTitle),
+        description: item.encryptedDescription ? this.e2eManager.decrypt(item.encryptedDescription) : null,
+        tags: item.encryptedTags ? this.e2eManager.decrypt(item.encryptedTags).split(',') : [],
+      };
+    } catch (error) {
+      console.error('[E2E] Failed to decrypt action item:', error);
+      return { ...item, title: '[Encrypted - Unable to decrypt]', description: '', tags: [] };
+    }
+  }
+
+  /**
+   * Encrypt sensitive fields for a task before sending to backend
+   */
+  private encryptTaskForSync(task: any): any {
+    if (!this.e2eEnabled) return task;
+
+    return {
+      ...task,
+      encryptedTitle: this.e2eManager.encrypt(task.title),
+      encryptedDescription: task.description ? this.e2eManager.encrypt(task.description) : null,
+      encryptedTags: task.tags?.length > 0 ? this.e2eManager.encrypt(task.tags.join(',')) : null,
+      title: undefined,
+      description: undefined,
+      tags: undefined,
+    };
+  }
+
+  /**
+   * Decrypt sensitive fields from a task received from backend
+   */
+  private decryptTaskFromSync(task: any): any {
+    if (!this.e2eEnabled) return task;
+    if (!task.encryptedTitle) return task;
+
+    try {
+      return {
+        ...task,
+        title: this.e2eManager.decrypt(task.encryptedTitle),
+        description: task.encryptedDescription ? this.e2eManager.decrypt(task.encryptedDescription) : null,
+        tags: task.encryptedTags ? this.e2eManager.decrypt(task.encryptedTags).split(',') : [],
+      };
+    } catch (error) {
+      console.error('[E2E] Failed to decrypt task:', error);
+      return { ...task, title: '[Encrypted - Unable to decrypt]', description: '', tags: [] };
+    }
   }
 
   // =============================================================================
@@ -342,15 +515,16 @@ export class AiDDMCPServer {
       },
       {
         name: 'convert_to_tasks',
-        description: 'Convert action items to ADHD-optimized tasks. Submits a background AI job and returns immediately with a job ID. Tell user to check back in 5 minutes for results via list_tasks.',
+        description: 'Convert action items to ADHD-optimized tasks. IMPORTANT: When user says "convert these action items" or references specific items from a previous extraction/creation, you MUST pass those specific IDs in actionItemIds. Only use convertAll:true when user explicitly says "convert ALL action items".',
         annotations: { readOnlyHint: false, destructiveHint: false },
         inputSchema: {
           type: 'object',
           properties: {
-            actionItemIds: { type: 'array', items: { type: 'string' }, description: 'Specific action item IDs to convert (leave empty for all)' },
+            actionItemIds: { type: 'array', items: { type: 'string' }, description: 'REQUIRED when user references "these" items or specific items from a previous operation. Use the IDs from extract_action_items or create_action_item responses. Only omit when user explicitly wants ALL items converted.' },
+            convertAll: { type: 'boolean', description: 'Only set to true when user explicitly requests converting ALL action items. Do not use when user references specific items.' },
             breakdownMode: { type: 'string', enum: ['simple', 'adhd-optimized', 'detailed'], description: 'Task breakdown mode (default: adhd-optimized)' },
-            waitForCompletion: { type: 'boolean', description: 'AVOID using true - causes timeouts. Default false returns immediately.' },
-            skipDeduplication: { type: 'boolean', description: 'Skip checking for already-converted items (faster, may create duplicates). Use if timeouts occur.' },
+            waitForCompletion: { type: 'boolean', description: 'AVOID using true - causes timeouts. Default false returns immediately with job ID.' },
+            skipDeduplication: { type: 'boolean', description: 'Skip checking for already-converted items. Faster but may create duplicates.' },
           },
         },
       },
@@ -484,14 +658,38 @@ export class AiDDMCPServer {
 
   private async handleListNotes(args: any) {
     try {
+      // Ensure E2E is initialized before fetching data
+      await this.ensureE2EInitialized();
+
       let notes = await this.backendClient.listNotes(args);
+
+      // Decrypt notes if E2E is enabled
+      notes = notes.map((note: any) => this.decryptNoteFromSync(note));
+
       notes = await this.enrichNotesWithExtractedActionItems(notes);
-      const response = `📝 **Notes Retrieved**\n\n**Total notes:** ${notes.length}\n\n${notes.slice(0, 10).map((note: any, i: number) => {
-        const extractedInfo = (note as any).extractedActionItemCount > 0
-          ? `• Extracted Action Items: ${(note as any).extractedActionItemCount}`
-          : '';
-        return `${i + 1}. **${note.title}**\n   • ID: ${note.id}\n   • Category: ${note.category || 'personal'}\n   • Created: ${new Date(note.createdAt).toLocaleDateString()}\n   ${note.tags && note.tags.length > 0 ? `• Tags: ${note.tags.join(', ')}\n   ` : ''}${extractedInfo}`;
-      }).join('\n')}\n${notes.length > 10 ? `\n... and ${notes.length - 10} more notes` : ''}`;
+
+      // Build comprehensive note list with ALL available metadata
+      const noteDetails = notes.slice(0, 10).map((note: any, i: number) => {
+        const lines = [`${i + 1}. **${note.title}**`, `   • ID: ${note.id}`];
+        if (note.category) lines.push(`   • Category: ${note.category}`);
+        if (note.content) lines.push(`   • Content Preview: ${note.content.substring(0, 100)}${note.content.length > 100 ? '...' : ''}`);
+        if (note.tags && note.tags.length > 0) lines.push(`   • Tags: ${note.tags.join(', ')}`);
+        // Source/origin info
+        if (note.sourceNoteId) lines.push(`   • Source Note ID: ${note.sourceNoteId}`);
+        if (note.source) lines.push(`   • Source: ${note.source}`);
+        if (note.emailSubject) lines.push(`   • Email Subject: ${note.emailSubject}`);
+        if (note.emailFrom) lines.push(`   • Email From: ${note.emailFrom}`);
+        // Extracted action items
+        if ((note as any).extractedActionItemCount > 0) lines.push(`   • Extracted Action Items: ${(note as any).extractedActionItemCount}`);
+        // Status
+        if (note.isDeleted) lines.push(`   • Status: 🗑️ Deleted`);
+        // Timestamps
+        if (note.createdAt) lines.push(`   • Created: ${new Date(note.createdAt).toLocaleString()}`);
+        if (note.updatedAt) lines.push(`   • Updated: ${new Date(note.updatedAt).toLocaleString()}`);
+        return lines.join('\n');
+      }).join('\n\n');
+
+      const response = `📝 **Notes Retrieved**\n\n**Total notes:** ${notes.length}\n\n${noteDetails}\n${notes.length > 10 ? `\n... and ${notes.length - 10} more notes` : ''}`;
       return { content: [{ type: 'text', text: response } as TextContent] };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error listing notes: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
@@ -500,7 +698,13 @@ export class AiDDMCPServer {
 
   private async handleReadNote(args: any) {
     try {
+      await this.ensureE2EInitialized();
+
       let note = await this.backendClient.readNote(args.noteId);
+
+      // Decrypt note if E2E is enabled
+      note = this.decryptNoteFromSync(note);
+
       // Enrich with extracted action items
       const enriched = await this.enrichNotesWithExtractedActionItems([note]);
       note = enriched[0];
@@ -516,8 +720,15 @@ export class AiDDMCPServer {
 
   private async handleCreateNote(args: any) {
     try {
-      const note = await this.backendClient.createNote(args);
-      const response = `✅ **Note Created**\n\n**Title:** ${note.title}\n**ID:** ${note.id}\n**Category:** ${note.category || 'personal'}\n${note.tags && note.tags.length > 0 ? `**Tags:** ${note.tags.join(', ')}` : ''}\n\nThe note has been saved to your AiDD account.`;
+      await this.ensureE2EInitialized();
+
+      // Encrypt note data if E2E is enabled
+      const noteData = this.e2eEnabled ? this.encryptNoteForSync(args) : args;
+
+      const note = await this.backendClient.createNote(noteData);
+
+      // Use original args for display since we know the plaintext
+      const response = `✅ **Note Created**\n\n**Title:** ${args.title}\n**ID:** ${note.id}\n**Category:** ${args.category || 'personal'}\n${args.tags && args.tags.length > 0 ? `**Tags:** ${args.tags.join(', ')}` : ''}\n${this.e2eEnabled ? '🔐 **E2E Encrypted**' : ''}\n\nThe note has been saved to your AiDD account.`;
       return { content: [{ type: 'text', text: response } as TextContent] };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error creating note: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
@@ -526,15 +737,40 @@ export class AiDDMCPServer {
 
   private async handleListActionItems(args: any) {
     try {
+      await this.ensureE2EInitialized();
+
       let actionItems = await this.backendClient.listActionItems(args);
+
+      // Decrypt action items if E2E is enabled
+      actionItems = actionItems.map((item: any) => this.decryptActionItemFromSync(item));
+
       actionItems = await this.enrichActionItemsWithDerivedTasks(actionItems);
-      const response = `📋 **Action Items Retrieved**\n\n**Total action items:** ${actionItems.length}\n\n${actionItems.slice(0, 10).map((item: any, i: number) => {
-        const derivedTasksInfo = item.derivedTaskCount > 0
-          ? `• Derived Tasks: ${item.derivedTaskCount} task(s) created`
-          : '';
-        const sourceNoteInfo = item.sourceNoteId ? `• Source Note ID: ${item.sourceNoteId}` : '';
-        return `${i + 1}. **${item.title}**\n   • ID: ${item.id}\n   • Priority: ${item.priority}\n   • Category: ${item.category}\n   ${item.dueDate ? `• Due: ${new Date(item.dueDate).toLocaleDateString()}\n   ` : ''}${item.tags && item.tags.length > 0 ? `• Tags: ${item.tags.join(', ')}\n   ` : ''}${derivedTasksInfo ? `${derivedTasksInfo}\n   ` : ''}${sourceNoteInfo}`;
-      }).join('\n')}\n${actionItems.length > 10 ? `\n... and ${actionItems.length - 10} more items` : ''}`;
+
+      // Build comprehensive action item list with ALL available metadata
+      const itemDetails = actionItems.slice(0, 10).map((item: any, i: number) => {
+        const lines = [`${i + 1}. **${item.title}**`, `   • ID: ${item.id}`];
+        if (item.description) lines.push(`   • Description: ${item.description.substring(0, 100)}${item.description.length > 100 ? '...' : ''}`);
+        if (item.priority) lines.push(`   • Priority: ${item.priority}`);
+        if (item.category) lines.push(`   • Category: ${item.category}`);
+        if (item.confidence !== undefined) lines.push(`   • AI Confidence: ${(item.confidence * 100).toFixed(0)}%`);
+        // Source info
+        if (item.sourceNoteId) lines.push(`   • Source Note ID: ${item.sourceNoteId}`);
+        if (item.source) lines.push(`   • Source: ${item.source}`);
+        // Derived tasks
+        if (item.derivedTaskCount > 0) lines.push(`   • Derived Tasks: ${item.derivedTaskCount} task(s) created`);
+        // Due date and tags
+        if (item.dueDate) lines.push(`   • Due Date: ${new Date(item.dueDate).toLocaleDateString()}`);
+        if (item.tags && item.tags.length > 0) lines.push(`   • Tags: ${item.tags.join(', ')}`);
+        // Status
+        if (item.isCompleted) lines.push(`   • Status: ✅ Completed`);
+        if (item.isDeleted) lines.push(`   • Status: 🗑️ Deleted`);
+        // Timestamps
+        if (item.createdAt) lines.push(`   • Created: ${new Date(item.createdAt).toLocaleString()}`);
+        if (item.updatedAt) lines.push(`   • Updated: ${new Date(item.updatedAt).toLocaleString()}`);
+        return lines.join('\n');
+      }).join('\n\n');
+
+      const response = `📋 **Action Items Retrieved**\n\n**Total action items:** ${actionItems.length}\n\n${itemDetails}\n${actionItems.length > 10 ? `\n... and ${actionItems.length - 10} more items` : ''}`;
       return { content: [{ type: 'text', text: response } as TextContent] };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error listing action items: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
@@ -543,7 +779,13 @@ export class AiDDMCPServer {
 
   private async handleReadActionItem(args: any) {
     try {
+      await this.ensureE2EInitialized();
+
       let item = await this.backendClient.readActionItem(args.actionItemId);
+
+      // Decrypt action item if E2E is enabled
+      item = this.decryptActionItemFromSync(item);
+
       // Enrich with derived tasks
       const enriched = await this.enrichActionItemsWithDerivedTasks([item]);
       item = enriched[0];
@@ -562,10 +804,18 @@ export class AiDDMCPServer {
 
   private async handleCreateActionItem(args: any) {
     try {
+      await this.ensureE2EInitialized();
+
       const { title, description, priority = 'medium', dueDate, tags = [], category = 'work' } = args;
       const actionItemData = { title, description: description || '', priority, dueDate, tags, category, confidence: 1.0 };
-      const createdItem = await this.backendClient.createActionItem(actionItemData);
-      const response = `✅ **Action Item Created**\n\n**Title:** ${createdItem.title}\n**ID:** ${createdItem.id}\n**Priority:** ${createdItem.priority}\n**Category:** ${createdItem.category}\n${createdItem.dueDate ? `**Due Date:** ${createdItem.dueDate}` : ''}\n${createdItem.tags && createdItem.tags.length > 0 ? `**Tags:** ${createdItem.tags.join(', ')}` : ''}\n\nThe action item has been saved to your AiDD account.`;
+
+      // Encrypt action item data if E2E is enabled
+      const dataToSend = this.e2eEnabled ? this.encryptActionItemForSync(actionItemData) : actionItemData;
+
+      const createdItem = await this.backendClient.createActionItem(dataToSend);
+
+      // Use original args for display since we know the plaintext
+      const response = `✅ **Action Item Created**\n\n**Title:** ${title}\n**ID:** ${createdItem.id}\n**Priority:** ${priority}\n**Category:** ${category}\n${dueDate ? `**Due Date:** ${dueDate}` : ''}\n${tags && tags.length > 0 ? `**Tags:** ${tags.join(', ')}` : ''}\n${this.e2eEnabled ? '🔐 **E2E Encrypted**' : ''}\n\nThe action item has been saved to your AiDD account.`;
       return { content: [{ type: 'text', text: response } as TextContent] };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error creating action item: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
@@ -620,7 +870,10 @@ export class AiDDMCPServer {
         }
       }
 
-      let response = `🔍 **Action Items Extracted**\n\n**Summary:**\n• Source: ${source === 'notes' ? `${notesToProcess.length} notes` : 'provided text'}\n${skippedCount > 0 ? `• Skipped: ${skippedCount} notes (already extracted)` : ''}\n• Extraction mode: ${extractionMode}\n• Action items found: ${actionItems.length}\n• Action items saved: ${savedCount}\n\n**Extracted Action Items:**\n${actionItems.slice(0, 10).map((item: any, i: number) => `${i + 1}. **${item.title}**\n   • Priority: ${item.priority}\n   • Category: ${item.category}\n   • Confidence: ${(item.confidence * 100).toFixed(0)}%\n   ${item.dueDate ? `• Due: ${item.dueDate}` : ''}\n   ${item.tags && item.tags.length > 0 ? `• Tags: ${item.tags.join(', ')}` : ''}`).join('\n')}\n${actionItems.length > 10 ? `\n... and ${actionItems.length - 10} more items` : ''}\n\n✅ ${savedCount} action items have been saved to your AiDD account.`;
+      // Collect all action item IDs for potential follow-up operations (like convert_to_tasks)
+      const actionItemIds = actionItems.map((item: any) => item.id).filter(Boolean);
+
+      let response = `🔍 **Action Items Extracted**\n\n**Summary:**\n• Source: ${source === 'notes' ? `${notesToProcess.length} notes` : 'provided text'}\n${skippedCount > 0 ? `• Skipped: ${skippedCount} notes (already extracted)` : ''}\n• Extraction mode: ${extractionMode}\n• Action items found: ${actionItems.length}\n• Action items saved: ${savedCount}\n\n**Extracted Action Items:**\n${actionItems.slice(0, 10).map((item: any, i: number) => `${i + 1}. **${item.title}**\n   • ID: ${item.id}\n   • Priority: ${item.priority}\n   • Category: ${item.category}\n   • Confidence: ${(item.confidence * 100).toFixed(0)}%\n   ${item.dueDate ? `• Due: ${item.dueDate}` : ''}\n   ${item.tags && item.tags.length > 0 ? `• Tags: ${item.tags.join(', ')}` : ''}`).join('\n')}\n${actionItems.length > 10 ? `\n... and ${actionItems.length - 10} more items` : ''}\n\n✅ ${savedCount} action items have been saved to your AiDD account.\n\n**Action Item IDs (for convert_to_tasks):**\n${JSON.stringify(actionItemIds)}`;
       response = this.appendUsageWarning(response, usageCheck);
       return { content: [{ type: 'text', text: response } as TextContent] };
     } catch (error) {
@@ -712,14 +965,53 @@ export class AiDDMCPServer {
 
   private async handleListTasks(args: any) {
     try {
+      await this.ensureE2EInitialized();
+
       let tasks = await this.backendClient.listTasks(args);
+
+      // Decrypt tasks if E2E is enabled
+      tasks = tasks.map((task: any) => this.decryptTaskFromSync(task));
+
       tasks = await this.enrichTasksWithSourceActionItems(tasks);
-      const response = `✅ **Tasks Retrieved**\n\n**Total tasks:** ${tasks.length}\n\n${tasks.slice(0, 10).map((task: any, i: number) => {
+
+      // Build comprehensive task list with ALL available metadata
+      const taskDetails = tasks.slice(0, 10).map((task: any, i: number) => {
         const hasScores = task.relevanceScore !== undefined && task.impactScore !== undefined && task.urgencyScore !== undefined;
         const overallScore = hasScores ? ((task.relevanceScore + task.impactScore + task.urgencyScore) / 3 * 100).toFixed(0) : undefined;
-        const sourceInfo = task.sourceActionItem ? `• Source Action Item: ${task.sourceActionItem.title} (ID: ${task.actionItemId})` : (task.actionItemId ? `• Source Action Item ID: ${task.actionItemId}` : '');
-        return `${i + 1}. **${task.title}**\n   • ID: ${task.id}\n   ${sourceInfo ? `${sourceInfo}\n   ` : ''}${task.hasBeenAIScored && overallScore ? `• Overall AI Score: ${overallScore}%` : ''}\n   ${task.relevanceScore !== undefined ? `• Relevance: ${(task.relevanceScore * 100).toFixed(0)}%` : ''}\n   ${task.impactScore !== undefined ? `• Impact: ${(task.impactScore * 100).toFixed(0)}%` : ''}\n   ${task.urgencyScore !== undefined ? `• Urgency: ${(task.urgencyScore * 100).toFixed(0)}%` : ''}\n   ${task.estimatedTime ? `• Time: ${task.estimatedTime} min` : ''}\n   ${task.energyRequired ? `• Energy: ${task.energyRequired}` : ''}\n   ${task.dueDate ? `• Due: ${new Date(task.dueDate).toLocaleDateString()}` : ''}`;
-      }).join('\n')}\n${tasks.length > 10 ? `\n... and ${tasks.length - 10} more tasks` : ''}`;
+        const sourceInfo = task.sourceActionItem
+          ? `• Source Action Item: ${task.sourceActionItem.title} (ID: ${task.actionItemId})`
+          : (task.actionItemId ? `• Source Action Item ID: ${task.actionItemId}` : '');
+
+        // Build all available fields
+        const lines = [`${i + 1}. **${task.title}**`, `   • ID: ${task.id}`];
+        if (sourceInfo) lines.push(`   ${sourceInfo}`);
+        if (task.description) lines.push(`   • Description: ${task.description.substring(0, 100)}${task.description.length > 100 ? '...' : ''}`);
+        // AI Scores
+        if (task.hasBeenAIScored) lines.push(`   • AI Scored: ✓`);
+        if (overallScore) lines.push(`   • Overall AI Score: ${overallScore}%`);
+        if (task.urgencyScore !== undefined) lines.push(`   • Urgency Score: ${(task.urgencyScore * 100).toFixed(0)}%`);
+        if (task.impactScore !== undefined) lines.push(`   • Impact Score: ${(task.impactScore * 100).toFixed(0)}%`);
+        if (task.relevanceScore !== undefined) lines.push(`   • Relevance Score: ${(task.relevanceScore * 100).toFixed(0)}%`);
+        // Legacy score/factors (if present)
+        if (task.score !== undefined) lines.push(`   • Score (legacy): ${task.score}`);
+        if (task.factors) lines.push(`   • Factors: urgency=${task.factors.urgency}, importance=${task.factors.importance}, effort=${task.factors.effort}, adhd=${task.factors.adhd_compatibility}`);
+        // Task metadata
+        if (task.estimatedTime) lines.push(`   • Estimated Time: ${task.estimatedTime} min`);
+        if (task.energyRequired) lines.push(`   • Energy Required: ${task.energyRequired}`);
+        if (task.taskType) lines.push(`   • Task Type: ${task.taskType}`);
+        if (task.dueDate) lines.push(`   • Due Date: ${new Date(task.dueDate).toLocaleDateString()}`);
+        if (task.tags && task.tags.length > 0) lines.push(`   • Tags: ${task.tags.join(', ')}`);
+        if (task.taskOrder !== undefined) lines.push(`   • Task Order: ${task.taskOrder}`);
+        if (task.dependsOnTaskOrders && task.dependsOnTaskOrders.length > 0) lines.push(`   • Dependencies: ${task.dependsOnTaskOrders.join(', ')}`);
+        // Status
+        if (task.isCompleted) lines.push(`   • Status: ✅ Completed`);
+        if (task.createdAt) lines.push(`   • Created: ${new Date(task.createdAt).toLocaleString()}`);
+        if (task.updatedAt) lines.push(`   • Updated: ${new Date(task.updatedAt).toLocaleString()}`);
+
+        return lines.join('\n');
+      }).join('\n\n');
+
+      const response = `✅ **Tasks Retrieved**\n\n**Total tasks:** ${tasks.length}\n\n${taskDetails}\n${tasks.length > 10 ? `\n... and ${tasks.length - 10} more tasks` : ''}`;
       return { content: [{ type: 'text', text: response } as TextContent] };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error listing tasks: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
@@ -728,7 +1020,13 @@ export class AiDDMCPServer {
 
   private async handleReadTask(args: any) {
     try {
+      await this.ensureE2EInitialized();
+
       let task = await this.backendClient.readTask(args.taskId);
+
+      // Decrypt task if E2E is enabled
+      task = this.decryptTaskFromSync(task);
+
       // Enrich with source action item
       const enriched = await this.enrichTasksWithSourceActionItems([task]);
       task = enriched[0];
@@ -746,10 +1044,18 @@ export class AiDDMCPServer {
 
   private async handleCreateTask(args: any) {
     try {
+      await this.ensureE2EInitialized();
+
       const { title, description, estimatedTime = 15, energyRequired = 'medium', taskType = 'administrative', dueDate, tags = [] } = args;
       const taskData = { actionItemId: '', taskOrder: 1, title, description: description || '', estimatedTime, energyRequired, tags, dependsOnTaskOrders: [], taskType, dueDate };
-      const createdTask = await this.backendClient.createTask(taskData);
-      const response = `✅ **Task Created**\n\n**Title:** ${createdTask.title}\n**ID:** ${createdTask.id}\n**Estimated Time:** ${createdTask.estimatedTime || estimatedTime} minutes\n**Energy Required:** ${createdTask.energyRequired || energyRequired}\n**Task Type:** ${createdTask.taskType || taskType}\n${createdTask.dueDate ? `**Due Date:** ${createdTask.dueDate}` : ''}\n${createdTask.tags && createdTask.tags.length > 0 ? `**Tags:** ${createdTask.tags.join(', ')}` : ''}\n\nThe task has been saved to your AiDD account.`;
+
+      // Encrypt task data if E2E is enabled
+      const dataToSend = this.e2eEnabled ? this.encryptTaskForSync(taskData) : taskData;
+
+      const createdTask = await this.backendClient.createTask(dataToSend);
+
+      // Use original args for display since we know the plaintext
+      const response = `✅ **Task Created**\n\n**Title:** ${title}\n**ID:** ${createdTask.id}\n**Estimated Time:** ${estimatedTime} minutes\n**Energy Required:** ${energyRequired}\n**Task Type:** ${taskType}\n${dueDate ? `**Due Date:** ${dueDate}` : ''}\n${tags && tags.length > 0 ? `**Tags:** ${tags.join(', ')}` : ''}\n${this.e2eEnabled ? '🔐 **E2E Encrypted**' : ''}\n\nThe task has been saved to your AiDD account.`;
       return { content: [{ type: 'text', text: response } as TextContent] };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error creating task: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
@@ -761,28 +1067,43 @@ export class AiDDMCPServer {
       const usageCheck = await this.checkOperationLimit('conversion');
       if (!usageCheck.allowed) return this.formatLimitReachedResponse(usageCheck);
 
-      const { actionItemIds, breakdownMode = 'adhd-optimized', waitForCompletion = false } = args;
+      const { actionItemIds, convertAll, breakdownMode = 'adhd-optimized', waitForCompletion = false, skipDeduplication = false } = args;
 
-      // FAST PATH: If no specific IDs provided, use convertAll (backend handles everything)
-      if (!actionItemIds || actionItemIds.length === 0) {
-        if (!waitForCompletion) {
-          console.log('[MCP] Using fast convertAll path - backend handles fetching and deduplication');
-          const result = await this.backendClient.startConversionJobAllAsync();
+      // GUARD: Require explicit intent - don't accidentally convert all items
+      // If user didn't specify IDs and didn't explicitly set convertAll=true, ask for clarification
+      if ((!actionItemIds || actionItemIds.length === 0) && convertAll !== true) {
+        return {
+          content: [{
+            type: 'text',
+            text: `⚠️ **Please specify which action items to convert**
 
-          // Handle "all already converted" case
-          if (!result.jobId) {
-            return { content: [{ type: 'text', text: `✅ **All Action Items Already Converted**\n\n${result.message}\n\nTo convert specific action items again, use the \`actionItemIds\` parameter.` } as TextContent] };
-          }
+You didn't provide specific action item IDs, and \`convertAll\` was not explicitly set to \`true\`.
 
-          let response = `🚀 **AI Conversion Started**\n\n${result.message}\n\n**What's happening:**\n• AI is breaking down action items into manageable tasks\n• Tasks are being optimized for ADHD-friendly execution\n• Each action item may generate multiple subtasks\n\n**Check your results:**\n⏱️ **Check back in ~5 minutes** - use the \`list_tasks\` tool to see your converted tasks.\n\nJob ID: \`${result.jobId}\``;
-          response = this.appendUsageWarning(response, usageCheck);
-          return { content: [{ type: 'text', text: response.trim() } as TextContent] };
-        }
+**Options:**
+
+1. **Convert specific items** (recommended):
+   Pass the \`actionItemIds\` from a previous \`extract_action_items\` or \`list_action_items\` response.
+   \`\`\`
+   convert_to_tasks:
+     actionItemIds: ["ai_xxx", "ai_yyy", "ai_zzz"]
+   \`\`\`
+
+2. **Convert ALL action items**:
+   Explicitly set \`convertAll: true\` if you want to convert everything.
+   \`\`\`
+   convert_to_tasks:
+     convertAll: true
+   \`\`\`
+
+**Tip:** After \`extract_action_items\`, the response includes an **"Action Item IDs (for convert_to_tasks)"** section with the IDs to use.`
+          } as TextContent]
+        };
       }
 
-      // SPECIFIC IDs PATH: Fetch specific action items (slower, but needed for targeted conversion)
-      let actionItems: any[] = [];
+      // MODE 1: SPECIFIC IDs - Convert selected action items
       if (actionItemIds && actionItemIds.length > 0) {
+        console.log(`[MCP] Converting ${actionItemIds.length} specific action items`);
+        let actionItems: any[] = [];
         for (const id of actionItemIds) {
           try {
             const item = await this.backendClient.readActionItem(id);
@@ -791,20 +1112,62 @@ export class AiDDMCPServer {
             console.warn(`[MCP] Could not fetch action item ${id}:`, err);
           }
         }
+
+        if (actionItems.length === 0) {
+          return { content: [{ type: 'text', text: `❌ No action items found to convert.\n\nThe specified action item IDs were not found. Please use \`list_action_items\` to see available items.` } as TextContent] };
+        }
+
+        if (!waitForCompletion) {
+          const { jobId, actionItemCount } = await this.backendClient.startConversionJobAsync(actionItems);
+          let response = `🚀 **AI Conversion Started**\n\nConverting ${actionItemCount} selected action item${actionItemCount > 1 ? 's' : ''} to ADHD-optimized tasks.\n\n**What's happening:**\n• AI is breaking down action items into manageable tasks\n• Tasks are being optimized for ADHD-friendly execution\n• Each action item may generate multiple subtasks\n\n**Check your results:**\n⏱️ **Check back in ~5 minutes** - use the \`list_tasks\` tool to see your converted tasks.\n\nJob ID: \`${jobId}\``;
+          response = this.appendUsageWarning(response, usageCheck);
+          return { content: [{ type: 'text', text: response.trim() } as TextContent] };
+        }
+
+        // Synchronous conversion for specific items
+        const tasks = await this.backendClient.convertToTasks(actionItems);
+        let savedCount = 0;
+        if (tasks.length > 0) {
+          try {
+            const saveResult = await this.backendClient.saveTasks(tasks);
+            savedCount = saveResult.count;
+          } catch (saveError) {
+            console.error('[MCP] Failed to save converted tasks:', saveError);
+          }
+        }
+        let response = this.formatConversionResult(actionItems, tasks, savedCount, breakdownMode);
+        response = this.appendUsageWarning(response, usageCheck);
+        return { content: [{ type: 'text', text: response } as TextContent] };
       }
 
-      if (actionItems.length === 0) {
-        return { content: [{ type: 'text', text: `❌ No action items found to convert.\n\nEither all specified action items were not found, or you didn't specify any IDs.` } as TextContent] };
-      }
+      // MODE 2: CONVERT ALL - No specific IDs provided (or explicit convertAll=true)
+      // This is the default behavior when no actionItemIds are specified
+      console.log(`[MCP] Converting all action items (convertAll=${convertAll}, skipDeduplication=${skipDeduplication})`);
 
       if (!waitForCompletion) {
-        const { jobId, actionItemCount } = await this.backendClient.startConversionJobAsync(actionItems);
-        let response = `🚀 **AI Conversion Started**\n\nConverting ${actionItemCount} action items to ADHD-optimized tasks in the background.\n\n**What's happening:**\n• AI is breaking down action items into manageable tasks\n• Tasks are being optimized for ADHD-friendly execution\n• Each action item may generate multiple subtasks\n\n**Check your results:**\n⏱️ **Check back in ~5 minutes** - use the \`list_tasks\` tool to see your converted tasks.\n\nJob ID: \`${jobId}\``;
+        // FAST PATH: Backend handles fetching and deduplication
+        const result = await this.backendClient.startConversionJobAllAsync(skipDeduplication);
+
+        // Handle "all already converted" case
+        if (!result.jobId) {
+          return { content: [{ type: 'text', text: `✅ **All Action Items Already Converted**\n\n${result.message}\n\nTo re-convert specific action items, use the \`actionItemIds\` parameter with specific IDs.` } as TextContent] };
+        }
+
+        let response = `🚀 **AI Conversion Started**\n\n${result.message}\n\n**What's happening:**\n• AI is breaking down action items into manageable tasks\n• ${skipDeduplication ? 'Deduplication skipped (faster)' : 'Already-converted items are automatically skipped'}\n• Tasks are optimized for ADHD-friendly execution\n\n**Check your results:**\n⏱️ **Check back in ~5 minutes** - use the \`list_tasks\` tool to see your converted tasks.\n\nJob ID: \`${result.jobId}\``;
         response = this.appendUsageWarning(response, usageCheck);
         return { content: [{ type: 'text', text: response.trim() } as TextContent] };
       }
 
-      const tasks = await this.backendClient.convertToTasks(actionItems);
+      // SLOW PATH: Synchronous conversion (waitForCompletion=true)
+      // Fetch all action items and convert synchronously
+      console.log('[MCP] Using synchronous conversion path (waitForCompletion=true)');
+      const allActionItems = await this.backendClient.listActionItems({});
+
+      if (allActionItems.length === 0) {
+        return { content: [{ type: 'text', text: `📋 **No Action Items Found**\n\nYou don't have any action items to convert. Use \`extract_action_items\` to extract action items from your notes first.` } as TextContent] };
+      }
+
+      const tasks = await this.backendClient.convertToTasks(allActionItems);
       let savedCount = 0;
       if (tasks.length > 0) {
         try {
@@ -814,19 +1177,23 @@ export class AiDDMCPServer {
           console.error('[MCP] Failed to save converted tasks:', saveError);
         }
       }
-
-      let response = `✨ **Tasks Created (ADHD-Optimized)**\n\n**Summary:**\n• Action items converted: ${actionItems.length}\n• Tasks created: ${tasks.length}\n• Tasks saved: ${savedCount}\n• Breakdown mode: ${breakdownMode}\n• Average tasks per item: ${(tasks.length / actionItems.length).toFixed(1)}\n\n**Created Tasks:**\n${tasks.slice(0, 15).map((task: any, i: number) => `${i + 1}. **${task.title}**\n   • Time: ${task.estimatedTime} min\n   • Energy: ${task.energyRequired}\n   • Type: ${task.taskType}\n   ${task.dependsOnTaskOrders && task.dependsOnTaskOrders.length > 0 ? `• Depends on: Task ${task.dependsOnTaskOrders.join(', ')}` : ''}`).join('\n')}\n${tasks.length > 15 ? `\n... and ${tasks.length - 15} more tasks` : ''}\n\n**Task Breakdown:**\n• Quick wins: ${tasks.filter((t: any) => t.taskType === 'quick_win').length}\n• Focus required: ${tasks.filter((t: any) => t.taskType === 'focus_required').length}\n• Collaborative: ${tasks.filter((t: any) => t.taskType === 'collaborative').length}\n• Creative: ${tasks.filter((t: any) => t.taskType === 'creative').length}\n• Administrative: ${tasks.filter((t: any) => t.taskType === 'administrative').length}\n\n✅ ${savedCount} tasks have been saved to your AiDD account.`;
+      let response = this.formatConversionResult(allActionItems, tasks, savedCount, breakdownMode);
       response = this.appendUsageWarning(response, usageCheck);
       return { content: [{ type: 'text', text: response } as TextContent] };
+
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       const isTimeout = errorMsg.includes('timed out') || errorMsg.includes('timeout');
       let response = `❌ Error converting to tasks: ${errorMsg}`;
       if (isTimeout) {
-        response += `\n\n**💡 Try these workarounds:**\n1. Use \`skipDeduplication: true\` to skip the slow duplicate check\n2. Specify specific \`actionItemIds\` instead of converting all\n3. Try again in a few minutes when the backend is less busy`;
+        response += `\n\n**💡 Try these options:**\n1. Use default async mode (don't set waitForCompletion)\n2. Specify specific \`actionItemIds\` to convert fewer items\n3. Set \`skipDeduplication: true\` for faster processing\n4. Try again in a few minutes`;
       }
       return { content: [{ type: 'text', text: response } as TextContent] };
     }
+  }
+
+  private formatConversionResult(actionItems: any[], tasks: any[], savedCount: number, breakdownMode: string): string {
+    return `✨ **Tasks Created (ADHD-Optimized)**\n\n**Summary:**\n• Action items converted: ${actionItems.length}\n• Tasks created: ${tasks.length}\n• Tasks saved: ${savedCount}\n• Breakdown mode: ${breakdownMode}\n• Average tasks per item: ${(tasks.length / actionItems.length).toFixed(1)}\n\n**Created Tasks:**\n${tasks.slice(0, 15).map((task: any, i: number) => `${i + 1}. **${task.title}**\n   • Time: ${task.estimatedTime} min\n   • Energy: ${task.energyRequired}\n   • Type: ${task.taskType}\n   ${task.dependsOnTaskOrders && task.dependsOnTaskOrders.length > 0 ? `• Depends on: Task ${task.dependsOnTaskOrders.join(', ')}` : ''}`).join('\n')}\n${tasks.length > 15 ? `\n... and ${tasks.length - 15} more tasks` : ''}\n\n**Task Breakdown:**\n• Quick wins: ${tasks.filter((t: any) => t.taskType === 'quick_win').length}\n• Focus required: ${tasks.filter((t: any) => t.taskType === 'focus_required').length}\n• Collaborative: ${tasks.filter((t: any) => t.taskType === 'collaborative').length}\n• Creative: ${tasks.filter((t: any) => t.taskType === 'creative').length}\n• Administrative: ${tasks.filter((t: any) => t.taskType === 'administrative').length}\n\n✅ ${savedCount} tasks have been saved to your AiDD account.`;
   }
 
   private async handleScoreTasks(args: any) {

@@ -50,6 +50,44 @@ interface ScoredTask {
 // Default timeout for API calls (60 seconds - increased from 30s to handle slow backend)
 const API_TIMEOUT_MS = 60000;
 
+// Subscription tier-based batch limits (matching backend gemini-ai-service.js)
+// Backend uses different models: Flash for extraction (2000 RPM), Pro for conversion/scoring (1000 RPM)
+const BATCH_LIMITS = {
+  FREE: {
+    // Extraction (Flash model - 15 RPM for free tier)
+    extractionBatchSize: 3,
+    extractionConcurrent: 1,
+    // Conversion (Pro model - 15 RPM for free tier)
+    conversionBatchSize: 3,
+    conversionConcurrent: 1,
+    // Scoring (Pro model - can handle larger batches, 500 per batch on backend)
+    scoringBatchSize: 50,    // Backend supports 500, but start smaller for free
+    scoringConcurrent: 1,
+  },
+  PREMIUM: {
+    // Extraction (Flash model - 2000 RPM)
+    extractionBatchSize: 10,
+    extractionConcurrent: 20,    // Flash: 2000 RPM / 60s = ~33/s, safe at 20
+    // Conversion (Pro model - 1000 RPM)
+    conversionBatchSize: 5,
+    conversionConcurrent: 10,    // Pro: 1000 RPM / 60s = ~16/s, safe at 10
+    // Scoring (Pro model - maximize batch size, minimize parallelism)
+    scoringBatchSize: 500,       // Backend supports up to 500 per batch
+    scoringConcurrent: 3,        // Only parallelize if > 500 tasks
+  },
+  PRO: {
+    // Extraction (Flash model - 2000 RPM)
+    extractionBatchSize: 10,
+    extractionConcurrent: 25,    // Flash: 2000 RPM / 60s = ~33/s, safe at 25
+    // Conversion (Pro model - 1000 RPM)
+    conversionBatchSize: 5,
+    conversionConcurrent: 15,    // Pro: 1000 RPM / 60s = ~16/s, safe at 15
+    // Scoring (Pro model - maximize batch size, minimize parallelism)
+    scoringBatchSize: 500,       // Backend supports up to 500 per batch
+    scoringConcurrent: 5,        // Only parallelize if > 500 tasks
+  },
+};
+
 export class AiDDBackendClient extends EventEmitter {
   private baseUrl = 'https://aidd-backend-prod-739193356129.us-central1.run.app';
   private apiKey = 'dev-api-key-123456';
@@ -59,6 +97,7 @@ export class AiDDBackendClient extends EventEmitter {
   private authManager: AuthManager;
   private useUserAuth: boolean = false;
   private oauthToken?: string;
+  private subscriptionTier: 'FREE' | 'PREMIUM' | 'PRO' = 'FREE';
 
   // Helper to wrap fetch with timeout to prevent indefinite hanging
   private async fetchWithTimeout(url: string, options: { method?: string; headers?: Record<string, string>; body?: string; timeout?: number } = {}): Promise<any> {
@@ -95,7 +134,44 @@ export class AiDDBackendClient extends EventEmitter {
     if (this.useUserAuth) {
       const userInfo = this.authManager.getUserInfo();
       this.userId = userInfo.userId;
+      // Get subscription tier from user info if available
+      if (userInfo.subscription) {
+        this.subscriptionTier = userInfo.subscription.toUpperCase() as 'FREE' | 'PREMIUM' | 'PRO';
+      }
       this.emit('userAuthenticated', userInfo);
+    }
+  }
+
+  // Get batch limits based on subscription tier
+  private getBatchLimits(): typeof BATCH_LIMITS.FREE {
+    return BATCH_LIMITS[this.subscriptionTier] || BATCH_LIMITS.FREE;
+  }
+
+  // Fetch and cache subscription tier from backend
+  private async fetchSubscriptionTier(): Promise<void> {
+    try {
+      const response = await this.fetchWithTimeout(`${this.baseUrl}/api/subscription/status`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.deviceToken}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 5000, // Short timeout - don't block on this
+      });
+      if (response.ok) {
+        const data = await response.json() as { tier?: string };
+        if (data.tier) {
+          const tier = data.tier.toUpperCase();
+          if (tier === 'FREE' || tier === 'PREMIUM' || tier === 'PRO') {
+            this.subscriptionTier = tier;
+            const limits = this.getBatchLimits();
+            console.log(`[MCP] Subscription tier: ${this.subscriptionTier} (extraction: ${limits.extractionConcurrent}, conversion: ${limits.conversionConcurrent}, scoring: ${limits.scoringConcurrent})`);
+          }
+        }
+      }
+    } catch (error) {
+      // Silently fail - use FREE tier limits by default
+      console.log('[MCP] Could not fetch subscription tier, using FREE tier limits');
     }
   }
 
@@ -108,13 +184,19 @@ export class AiDDBackendClient extends EventEmitter {
           this.deviceToken = token;
           const userInfo = this.authManager.getUserInfo();
           this.userId = userInfo.userId;
+          // Set subscription tier from user info
+          if (userInfo.subscription) {
+            this.subscriptionTier = userInfo.subscription.toUpperCase() as 'FREE' | 'PREMIUM' | 'PRO';
+          }
           this.emit('authenticated', {
             userId: userInfo.userId,
             email: userInfo.email,
             subscription: userInfo.subscription,
             authType: 'user'
           });
-          console.log(`Authenticated as: ${userInfo.email} (${userInfo.subscription || 'FREE'})`);
+          console.log(`Authenticated as: ${userInfo.email} (${this.subscriptionTier})`);
+          // Fetch subscription tier in background to confirm
+          this.fetchSubscriptionTier();
           return true;
         }
       }
@@ -140,6 +222,8 @@ export class AiDDBackendClient extends EventEmitter {
       this.refreshToken = data.refreshToken;
       this.userId = data.userId;
       this.emit('authenticated', { userId: data.userId, authType: 'device' });
+      // Fetch subscription tier for device auth too
+      await this.fetchSubscriptionTier();
       return true;
     } catch (error) {
       this.emit('error', { type: 'auth', error });
@@ -172,24 +256,37 @@ export class AiDDBackendClient extends EventEmitter {
 
   async extractActionItems(notes: Array<{ id: string; title: string; content: string }>): Promise<ActionItem[]> {
     if (!this.deviceToken) await this.authenticate();
-    const BATCH_SIZE = 3;
-    const BATCH_DELAY_MS = 2000;
-    if (notes.length <= BATCH_SIZE) return this.extractBatch(notes);
-    const allActionItems: ActionItem[] = [];
+    const limits = this.getBatchLimits();
+    const batchSize = limits.extractionBatchSize;
+    const maxConcurrent = limits.extractionConcurrent;
+
+    if (notes.length <= batchSize) return this.extractBatch(notes);
+
     const batches: Array<{ id: string; title: string; content: string }>[] = [];
-    for (let i = 0; i < notes.length; i += BATCH_SIZE) {
-      batches.push(notes.slice(i, i + BATCH_SIZE));
+    for (let i = 0; i < notes.length; i += batchSize) {
+      batches.push(notes.slice(i, i + batchSize));
     }
-    console.log(`[MCP] Extracting action items from ${notes.length} notes in ${batches.length} batches`);
-    for (let i = 0; i < batches.length; i++) {
-      const batch = batches[i];
-      console.log(`[MCP] Processing extraction batch ${i + 1}/${batches.length} (${batch.length} notes)`);
-      try {
-        const actionItems = await this.extractBatch(batch);
-        allActionItems.push(...actionItems);
-        if (i < batches.length - 1) await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
-      } catch (error) {
-        console.error(`[MCP] Extraction batch ${i + 1} failed:`, error);
+    console.log(`[MCP] Extracting action items from ${notes.length} notes in ${batches.length} batches (${maxConcurrent} concurrent, tier: ${this.subscriptionTier}, Flash model)`);
+
+    // Process batches in parallel with controlled concurrency (Flash model has higher RPM)
+    const allActionItems: ActionItem[] = [];
+    for (let i = 0; i < batches.length; i += maxConcurrent) {
+      const concurrentBatches = batches.slice(i, i + maxConcurrent);
+      console.log(`[MCP] Processing extraction batches ${i + 1}-${Math.min(i + maxConcurrent, batches.length)} of ${batches.length} in parallel`);
+
+      const results = await Promise.allSettled(
+        concurrentBatches.map((batch, idx) => {
+          console.log(`[MCP] Starting extraction batch ${i + idx + 1}`);
+          return this.extractBatch(batch);
+        })
+      );
+
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          allActionItems.push(...result.value);
+        } else {
+          console.error(`[MCP] Extraction batch failed:`, result.reason);
+        }
       }
     }
     console.log(`[MCP] Extraction batch processing complete. Total action items: ${allActionItems.length}`);
@@ -264,12 +361,23 @@ export class AiDDBackendClient extends EventEmitter {
   }
 
   private parseConversionResult(waitResult: any): ConvertedTask[] | null {
-    interface WrappedTask { originalId: string; converted: boolean; task: ConvertedTask; }
+    interface WrappedTask { originalId: string; converted: boolean; task: ConvertedTask; actionItemId?: string; }
     const unwrapTasks = (tasks: Array<WrappedTask | ConvertedTask>): ConvertedTask[] => {
       return tasks.map(t => {
         if ('task' in t && t.task && typeof t.task === 'object') {
-          console.log(`[MCP] Unwrapping task: ${(t.task as ConvertedTask).title}`);
-          return t.task as ConvertedTask;
+          const task = t.task as ConvertedTask;
+          const wrapper = t as WrappedTask;
+          // CRITICAL FIX: Backend uses 'originalId' for the action item ID, not 'actionItemId'
+          // The inner task should have actionItemId, but if not, get it from wrapper's originalId
+          if (!task.actionItemId) {
+            const wrappedActionItemId = wrapper.actionItemId || wrapper.originalId;
+            if (wrappedActionItemId && wrappedActionItemId !== 'unknown') {
+              task.actionItemId = wrappedActionItemId;
+              console.log(`[MCP] Fixed actionItemId from wrapper: ${wrappedActionItemId}`);
+            }
+          }
+          console.log(`[MCP] Unwrapping task: ${task.title} (actionItemId: ${task.actionItemId || 'MISSING'})`);
+          return task;
         }
         return t as ConvertedTask;
       });
@@ -354,24 +462,37 @@ export class AiDDBackendClient extends EventEmitter {
 
   async convertToTasks(actionItems: ActionItem[]): Promise<ConvertedTask[]> {
     if (!this.deviceToken) await this.authenticate();
-    const BATCH_SIZE = 3;
-    const BATCH_DELAY_MS = 2000;
-    if (actionItems.length <= BATCH_SIZE) return this.convertBatch(actionItems);
-    const allTasks: ConvertedTask[] = [];
+    const limits = this.getBatchLimits();
+    const batchSize = limits.conversionBatchSize;
+    const maxConcurrent = limits.conversionConcurrent;
+
+    if (actionItems.length <= batchSize) return this.convertBatch(actionItems);
+
     const batches: ActionItem[][] = [];
-    for (let i = 0; i < actionItems.length; i += BATCH_SIZE) {
-      batches.push(actionItems.slice(i, i + BATCH_SIZE));
+    for (let i = 0; i < actionItems.length; i += batchSize) {
+      batches.push(actionItems.slice(i, i + batchSize));
     }
-    console.log(`[MCP] Processing ${actionItems.length} action items in ${batches.length} batches`);
-    for (let i = 0; i < batches.length; i++) {
-      const batch = batches[i];
-      console.log(`[MCP] Processing batch ${i + 1}/${batches.length} (${batch.length} items)`);
-      try {
-        const tasks = await this.convertBatch(batch);
-        allTasks.push(...tasks);
-        if (i < batches.length - 1) await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
-      } catch (error) {
-        console.error(`[MCP] Batch ${i + 1} failed:`, error);
+    console.log(`[MCP] Processing ${actionItems.length} action items in ${batches.length} batches (${maxConcurrent} concurrent, tier: ${this.subscriptionTier}, Pro model)`);
+
+    // Process batches in parallel with controlled concurrency (Pro model has 1000 RPM)
+    const allTasks: ConvertedTask[] = [];
+    for (let i = 0; i < batches.length; i += maxConcurrent) {
+      const concurrentBatches = batches.slice(i, i + maxConcurrent);
+      console.log(`[MCP] Processing conversion batches ${i + 1}-${Math.min(i + maxConcurrent, batches.length)} of ${batches.length} in parallel`);
+
+      const results = await Promise.allSettled(
+        concurrentBatches.map((batch, idx) => {
+          console.log(`[MCP] Starting conversion batch ${i + idx + 1}`);
+          return this.convertBatch(batch);
+        })
+      );
+
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          allTasks.push(...result.value);
+        } else {
+          console.error(`[MCP] Conversion batch failed:`, result.reason);
+        }
       }
     }
     console.log(`[MCP] Batch processing complete. Total tasks: ${allTasks.length}`);
@@ -497,11 +618,12 @@ export class AiDDBackendClient extends EventEmitter {
   /**
    * Start conversion job using convertAll flag - backend fetches action items directly
    * This is MUCH faster than fetching action items client-side first
+   * @param skipDeduplication - If true, skips checking for already-converted items (faster but may create duplicates)
    */
-  async startConversionJobAllAsync(): Promise<{ jobId: string; message: string }> {
+  async startConversionJobAllAsync(skipDeduplication: boolean = false): Promise<{ jobId: string | null; message: string }> {
     if (!this.deviceToken) await this.authenticate();
     const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
-    console.log('[MCP] Starting async conversion with convertAll=true (backend fetches action items)');
+    console.log(`[MCP] Starting async conversion with convertAll=true, skipDeduplication=${skipDeduplication}`);
     try {
       const response = await this.fetchWithTimeout(`${this.baseUrl}/api/ai/convert-action-items`, {
         method: 'POST',
@@ -513,6 +635,7 @@ export class AiDDBackendClient extends EventEmitter {
         body: JSON.stringify({
           deviceId: deviceId,
           convertAll: true,  // Backend fetches action items from Firestore
+          skipDeduplication: skipDeduplication,
           conversionMode: 'adhd-optimized',
           breakdownComplexTasks: true,
           maxTasksPerItem: 5,
@@ -522,7 +645,11 @@ export class AiDDBackendClient extends EventEmitter {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(`Conversion failed: ${response.statusText} - ${errorData.message || ''}`);
       }
-      const jobData = await response.json() as { jobId?: string; message?: string };
+      const jobData = await response.json() as { jobId?: string | null; message?: string; status?: string };
+      // Handle "all already converted" case - jobId will be null but status is "skipped"
+      if (jobData.status === 'skipped' && !jobData.jobId) {
+        return { jobId: null, message: jobData.message || 'All items already converted' };
+      }
       if (!jobData.jobId) throw new Error('No jobId returned from conversion endpoint');
       return { jobId: jobData.jobId, message: jobData.message || 'Conversion started' };
     } catch (error: any) {
@@ -538,6 +665,55 @@ export class AiDDBackendClient extends EventEmitter {
     onProgress?: (progress: number, message: string) => void
   ): Promise<ScoredTask[]> {
     if (!this.deviceToken) await this.authenticate();
+    const limits = this.getBatchLimits();
+    const scoringBatchSize = limits.scoringBatchSize;
+    const maxConcurrent = limits.scoringConcurrent;
+
+    // For scoring, we want ALL tasks in one batch (up to 500) for relative scoring
+    // Only split into batches if we exceed the limit
+    if (tasks.length <= scoringBatchSize) {
+      console.log(`[MCP] Scoring ${tasks.length} tasks in single batch (tier: ${this.subscriptionTier})`);
+      return this.scoreBatch(tasks, onProgress);
+    }
+
+    // For very large sets, split into batches and parallelize
+    const batches: ConvertedTask[][] = [];
+    for (let i = 0; i < tasks.length; i += scoringBatchSize) {
+      batches.push(tasks.slice(i, i + scoringBatchSize));
+    }
+    console.log(`[MCP] Scoring ${tasks.length} tasks in ${batches.length} batches of up to ${scoringBatchSize} (${maxConcurrent} concurrent, tier: ${this.subscriptionTier})`);
+
+    const allScoredTasks: ScoredTask[] = [];
+    for (let i = 0; i < batches.length; i += maxConcurrent) {
+      const concurrentBatches = batches.slice(i, i + maxConcurrent);
+      console.log(`[MCP] Processing scoring batches ${i + 1}-${Math.min(i + maxConcurrent, batches.length)} of ${batches.length} in parallel`);
+
+      const results = await Promise.allSettled(
+        concurrentBatches.map((batch, idx) => {
+          console.log(`[MCP] Starting scoring batch ${i + idx + 1} (${batch.length} tasks)`);
+          return this.scoreBatch(batch);
+        })
+      );
+
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          allScoredTasks.push(...result.value);
+        } else {
+          console.error(`[MCP] Scoring batch failed:`, result.reason);
+        }
+      }
+    }
+
+    // Sort all results by score for final ordering
+    allScoredTasks.sort((a, b) => b.score - a.score);
+    console.log(`[MCP] Scoring complete. Total scored tasks: ${allScoredTasks.length}`);
+    return allScoredTasks;
+  }
+
+  private async scoreBatch(
+    tasks: ConvertedTask[],
+    onProgress?: (progress: number, message: string) => void
+  ): Promise<ScoredTask[]> {
     try {
       const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
       onProgress?.(5, 'Preparing tasks for scoring...');
@@ -556,7 +732,7 @@ export class AiDDBackendClient extends EventEmitter {
           taskType: task.taskType,
         };
       });
-      console.log('[MCP] Scoring tasks:', tasksToScore.map(t => ({ id: t.id, title: t.title })));
+      console.log('[MCP] Scoring batch:', tasksToScore.length, 'tasks');
       onProgress?.(10, 'Creating scoring job...');
       const response = await fetch(`${this.baseUrl}/api/ai/score-tasks`, {
         method: 'POST',
@@ -1176,5 +1352,154 @@ export class AiDDBackendClient extends EventEmitter {
       this.emit('error', { type: 'getAuthenticatedUser', error });
       throw error;
     }
+  }
+
+  // =============================================================================
+  // E2E ENCRYPTION METHODS
+  // =============================================================================
+
+  /**
+   * Get wrapped key data for E2E encryption
+   */
+  async getE2EWrappedKey(): Promise<any | null> {
+    if (!this.deviceToken) await this.authenticate();
+    try {
+      const headers = await this.getAuthHeaders();
+      const response = await fetch(`${this.baseUrl}/api/e2e/wrapped-key`, {
+        method: 'GET',
+        headers,
+      });
+      if (response.status === 404) {
+        return null; // No encryption set up
+      }
+      if (!response.ok) throw new Error(`Failed to get wrapped key: ${response.statusText}`);
+      return await response.json();
+    } catch (error) {
+      this.emit('error', { type: 'getE2EWrappedKey', error });
+      throw error;
+    }
+  }
+
+  /**
+   * Setup E2E encryption for the user
+   */
+  async setupE2EEncryption(password: string): Promise<any> {
+    if (!this.deviceToken) await this.authenticate();
+    try {
+      const headers = await this.getAuthHeaders();
+      const response = await fetch(`${this.baseUrl}/api/e2e/setup`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ password }),
+      });
+      if (!response.ok) throw new Error(`Failed to setup E2E: ${response.statusText}`);
+      return await response.json();
+    } catch (error) {
+      this.emit('error', { type: 'setupE2EEncryption', error });
+      throw error;
+    }
+  }
+
+  /**
+   * Check E2E encryption status
+   */
+  async getE2EStatus(): Promise<{ hasEncryption: boolean; version?: number }> {
+    if (!this.deviceToken) await this.authenticate();
+    try {
+      const headers = await this.getAuthHeaders();
+      const response = await fetch(`${this.baseUrl}/api/e2e/status`, {
+        method: 'GET',
+        headers,
+      });
+      if (!response.ok) {
+        return { hasEncryption: false };
+      }
+      return await response.json() as { hasEncryption: boolean; version?: number };
+    } catch (error) {
+      console.error('[MCP] E2E status check failed:', error);
+      return { hasEncryption: false };
+    }
+  }
+
+  /**
+   * Sync tasks with E2E mode (encrypted blobs)
+   */
+  async syncE2ETasks(encryptedTasks: any[], deletedIds: string[], lastSyncTimestamp?: Date): Promise<any> {
+    if (!this.deviceToken) await this.authenticate();
+    try {
+      const headers = await this.getAuthHeaders();
+      const response = await fetch(`${this.baseUrl}/api/sync/encrypted/tasks`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          tasks: encryptedTasks,
+          deletedIds,
+          lastSyncTimestamp: lastSyncTimestamp?.toISOString(),
+          e2eMode: true,
+        }),
+      });
+      if (!response.ok) throw new Error(`E2E tasks sync failed: ${response.statusText}`);
+      return await response.json();
+    } catch (error) {
+      this.emit('error', { type: 'syncE2ETasks', error });
+      throw error;
+    }
+  }
+
+  /**
+   * Sync action items with E2E mode (encrypted blobs)
+   */
+  async syncE2EActionItems(encryptedItems: any[], deletedIds: string[], lastSyncTimestamp?: Date): Promise<any> {
+    if (!this.deviceToken) await this.authenticate();
+    try {
+      const headers = await this.getAuthHeaders();
+      const response = await fetch(`${this.baseUrl}/api/sync/encrypted/actionItems`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          actionItems: encryptedItems,
+          deletedIds,
+          lastSyncTimestamp: lastSyncTimestamp?.toISOString(),
+          e2eMode: true,
+        }),
+      });
+      if (!response.ok) throw new Error(`E2E action items sync failed: ${response.statusText}`);
+      return await response.json();
+    } catch (error) {
+      this.emit('error', { type: 'syncE2EActionItems', error });
+      throw error;
+    }
+  }
+
+  /**
+   * Sync notes with E2E mode (encrypted blobs)
+   */
+  async syncE2ENotes(encryptedNotes: any[], deletedIds: string[], lastSyncTimestamp?: Date): Promise<any> {
+    if (!this.deviceToken) await this.authenticate();
+    try {
+      const headers = await this.getAuthHeaders();
+      const response = await fetch(`${this.baseUrl}/api/sync/encrypted/notes`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          notes: encryptedNotes,
+          deletedIds,
+          lastSyncTimestamp: lastSyncTimestamp?.toISOString(),
+          e2eMode: true,
+        }),
+      });
+      if (!response.ok) throw new Error(`E2E notes sync failed: ${response.statusText}`);
+      return await response.json();
+    } catch (error) {
+      this.emit('error', { type: 'syncE2ENotes', error });
+      throw error;
+    }
+  }
+
+  /**
+   * Get current access token for E2E operations
+   */
+  getAccessToken(): string | undefined {
+    return this.deviceToken;
   }
 }

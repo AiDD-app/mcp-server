@@ -349,14 +349,14 @@ class AiDDMCPServer {
       },
       {
         name: 'convert_to_tasks',
-        description: 'Convert action items to ADHD-optimized tasks using AiDD AI processing',
+        description: 'Convert action items to ADHD-optimized tasks using AiDD AI processing. IMPORTANT: When the user says "convert these action items" or references specific items from a previous extraction, you MUST pass those specific action item IDs in the actionItemIds array. Only leave actionItemIds empty when the user explicitly says "convert ALL action items" or when no specific items were referenced.',
         inputSchema: {
           type: 'object',
           properties: {
             actionItemIds: {
               type: 'array',
               items: { type: 'string' },
-              description: 'Specific action item IDs to convert (leave empty for all)',
+              description: 'Action item IDs to convert. REQUIRED when user references "these" items or specific items from a previous operation. Use the IDs from the extract_action_items response. Only omit when user explicitly wants ALL action items converted.',
             },
             breakdownMode: {
               type: 'string',
@@ -813,6 +813,9 @@ ${item.description || 'No description'}
 
       const actionItems = await this.backendClient.extractActionItems(notesToProcess);
 
+      // Collect all action item IDs for potential follow-up operations
+      const actionItemIds = actionItems.map((item: any) => item.id).filter(Boolean);
+
       const response = `
 🔍 **Action Items Extracted**
 
@@ -824,6 +827,7 @@ ${item.description || 'No description'}
 **Extracted Action Items:**
 ${actionItems.slice(0, 10).map((item: any, i: number) => `
 ${i + 1}. **${item.title}**
+   • ID: ${item.id}
    • Priority: ${item.priority}
    • Category: ${item.category}
    • Confidence: ${(item.confidence * 100).toFixed(0)}%
@@ -833,6 +837,9 @@ ${i + 1}. **${item.title}**
 ${actionItems.length > 10 ? `\n... and ${actionItems.length - 10} more items` : ''}
 
 Action items have been saved to your AiDD account.
+
+**Action Item IDs (for convert_to_tasks):**
+${JSON.stringify(actionItemIds)}
       `;
 
       return {
