@@ -585,7 +585,7 @@ export class AiDDBackendClient extends EventEmitter {
       await analytics.trackAIConversion({
         action_items_count: actionItems.length,
         tasks_generated: tasksGenerated,
-        model: 'gemini-2.5-pro',
+        model: 'gemini-3-pro-preview',
         processing_time: processingTime,
         success: success,
       }, { userId: this.userId });
@@ -833,7 +833,7 @@ export class AiDDBackendClient extends EventEmitter {
       const processingTime = Date.now() - startTime;
       await analytics.trackAIScoring({
         tasks_count: tasks.length,
-        model: 'gemini-2.5-pro',
+        model: 'gemini-3-pro-preview',
         processing_time: processingTime,
         success: success,
       }, { userId: this.userId });
