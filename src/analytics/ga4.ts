@@ -37,6 +37,15 @@ export class GA4Analytics {
     this.debug = config?.debug || process.env.NODE_ENV === 'development';
     this.endpoint = 'https://www.google-analytics.com/mp/collect';
     this.debugEndpoint = 'https://www.google-analytics.com/debug/mp/collect';
+
+    // Log initialization state (helpful for debugging env var issues)
+    console.log('[GA4-MCP] Initialized:', {
+      measurementId: this.measurementId?.substring(0, 5) + '...',
+      hasApiSecret: !!this.apiSecret,
+      enabled: this.enabled,
+      debug: this.debug,
+      nodeEnv: process.env.NODE_ENV
+    });
   }
 
   /**
@@ -53,10 +62,11 @@ export class GA4Analytics {
    * Send event to GA4
    */
   async sendEvent(eventName: string, params: EventParams = {}, options: EventOptions = {}): Promise<void> {
+    // Always log analytics state for debugging
+    console.log(`[GA4-MCP] sendEvent called: ${eventName}, enabled=${this.enabled}, measurementId=${this.measurementId?.substring(0, 5)}...`);
+
     if (!this.enabled) {
-      if (this.debug) {
-        console.log(`[GA4-MCP] Analytics disabled - skipping: ${eventName}`, params);
-      }
+      console.log(`[GA4-MCP] Analytics disabled - skipping: ${eventName}`, { measurementId: this.measurementId, hasSecret: !!this.apiSecret });
       return;
     }
 
@@ -84,6 +94,7 @@ export class GA4Analytics {
     const queryParams = `?measurement_id=${this.measurementId}&api_secret=${this.apiSecret}`;
 
     try {
+      console.log(`[GA4-MCP] Sending event to ${this.debug ? 'debug' : 'production'} endpoint...`);
       const response = await fetch(url + queryParams, {
         method: 'POST',
         headers: {
@@ -91,6 +102,8 @@ export class GA4Analytics {
         },
         body: JSON.stringify(payload),
       });
+
+      console.log(`[GA4-MCP] Event sent: ${eventName}, status=${response.status}`);
 
       if (this.debug && response.ok) {
         const data = await response.json();
