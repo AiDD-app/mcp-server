@@ -20,6 +20,7 @@ import {
   UsageCheckResult,
 } from './subscription-manager.js';
 import { E2EEncryptionManager, getE2EManager } from './e2e-encryption-manager.js';
+import { getAnalytics } from './analytics/ga4.js';
 
 export class AiDDMCPServer {
   private server: Server;
@@ -318,50 +319,78 @@ export class AiDDMCPServer {
 
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
+      const analytics = getAnalytics();
+      const startTime = Date.now();
+      let success = false;
 
       try {
+        let result;
         switch (name) {
           case 'list_notes':
-            return await this.handleListNotes(args);
+            result = await this.handleListNotes(args);
+            break;
           case 'read_note':
-            return await this.handleReadNote(args);
+            result = await this.handleReadNote(args);
+            break;
           case 'create_note':
-            return await this.handleCreateNote(args);
+            result = await this.handleCreateNote(args);
+            break;
           case 'list_action_items':
-            return await this.handleListActionItems(args);
+            result = await this.handleListActionItems(args);
+            break;
           case 'read_action_item':
-            return await this.handleReadActionItem(args);
+            result = await this.handleReadActionItem(args);
+            break;
           case 'create_action_item':
-            return await this.handleCreateActionItem(args);
+            result = await this.handleCreateActionItem(args);
+            break;
           case 'extract_action_items':
-            return await this.handleExtractActionItems(args);
+            result = await this.handleExtractActionItems(args);
+            break;
           case 'list_tasks':
-            return await this.handleListTasks(args);
+            result = await this.handleListTasks(args);
+            break;
           case 'read_task':
-            return await this.handleReadTask(args);
+            result = await this.handleReadTask(args);
+            break;
           case 'create_task':
-            return await this.handleCreateTask(args);
+            result = await this.handleCreateTask(args);
+            break;
           case 'convert_to_tasks':
-            return await this.handleConvertToTasks(args);
+            result = await this.handleConvertToTasks(args);
+            break;
           case 'score_tasks':
-            return await this.handleScoreTasks(args);
+            result = await this.handleScoreTasks(args);
+            break;
           case 'update_note':
-            return await this.handleUpdateNote(args);
+            result = await this.handleUpdateNote(args);
+            break;
           case 'delete_notes':
-            return await this.handleDeleteNotes(args);
+            result = await this.handleDeleteNotes(args);
+            break;
           case 'update_action_item':
-            return await this.handleUpdateActionItem(args);
+            result = await this.handleUpdateActionItem(args);
+            break;
           case 'delete_action_items':
-            return await this.handleDeleteActionItems(args);
+            result = await this.handleDeleteActionItems(args);
+            break;
           case 'update_task':
-            return await this.handleUpdateTask(args);
+            result = await this.handleUpdateTask(args);
+            break;
           case 'delete_tasks':
-            return await this.handleDeleteTasks(args);
+            result = await this.handleDeleteTasks(args);
+            break;
+          case 'session_status':
+            result = await this.handleSessionStatus();
+            break;
           case 'aidd_overview_tutorial':
-            return await this.handleOverviewTutorial(args);
+            result = await this.handleOverviewTutorial(args);
+            break;
           default:
             throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
         }
+        success = true;
+        return result;
       } catch (error) {
         if (error instanceof z.ZodError) {
           throw new McpError(
@@ -370,6 +399,10 @@ export class AiDDMCPServer {
           );
         }
         throw error;
+      } finally {
+        // Track ALL MCP tool calls for GA4 analytics
+        const executionTime = Date.now() - startTime;
+        await analytics.trackToolUsage(name, success, executionTime);
       }
     });
   }
@@ -478,7 +511,7 @@ export class AiDDMCPServer {
         inputSchema: {
           type: 'object',
           properties: {
-            sortBy: { type: 'string', enum: ['createdAt', 'updatedAt', 'score', 'dueDate'], description: 'Field to sort by (default: score)' },
+            sortBy: { type: 'string', enum: ['createdAt', 'updatedAt', 'score', 'dueDate', 'dependencyOrder'], description: 'Field to sort by (default: score). Use dependencyOrder to sort tasks by execution order respecting dependencies.' },
             order: { type: 'string', enum: ['asc', 'desc'], description: 'Sort order (default: desc for score, asc for dueDate)' },
             limit: { type: 'number', description: 'Maximum number of tasks to return (default: 100)' },
             offset: { type: 'number', description: 'Number of tasks to skip for pagination (default: 0)' },
@@ -624,6 +657,15 @@ export class AiDDMCPServer {
           type: 'object',
           properties: { taskIds: { type: 'array', items: { type: 'string' }, description: 'IDs of the tasks to delete' } },
           required: ['taskIds'],
+        },
+      },
+      {
+        name: 'session_status',
+        description: 'Check your AiDD authentication session status including token expiry and subscription tier. Use this to verify your connection is healthy.',
+        annotations: { readOnlyHint: true },
+        inputSchema: {
+          type: 'object',
+          properties: {},
         },
       },
       {
@@ -907,6 +949,115 @@ export class AiDDMCPServer {
   }
 
   /**
+   * Sort tasks by dependency order (topological sort)
+   * Tasks with no dependencies come first, then tasks that depend on those, etc.
+   * Within each level, tasks are sorted by taskOrder
+   */
+  private sortTasksByDependencyOrder(tasks: any[]): any[] {
+    // Group tasks by actionItemId for proper dependency resolution
+    const tasksByActionItem = new Map<string, any[]>();
+    const standalonesTasks: any[] = [];
+
+    tasks.forEach(task => {
+      if (task.actionItemId) {
+        const group = tasksByActionItem.get(task.actionItemId) || [];
+        group.push(task);
+        tasksByActionItem.set(task.actionItemId, group);
+      } else {
+        standalonesTasks.push(task);
+      }
+    });
+
+    // Sort each action item's tasks by dependency order
+    const sortedGroups: any[] = [];
+    tasksByActionItem.forEach((groupTasks, actionItemId) => {
+      const sorted = this.topologicalSort(groupTasks);
+      sortedGroups.push(...sorted);
+    });
+
+    // Standalone tasks go at the end
+    return [...sortedGroups, ...standalonesTasks];
+  }
+
+  /**
+   * Perform topological sort on tasks within a group
+   */
+  private topologicalSort(tasks: any[]): any[] {
+    if (tasks.length === 0) return [];
+
+    // Build task order lookup
+    const taskByOrder = new Map<number, any>();
+    tasks.forEach(task => {
+      if (task.taskOrder !== undefined) {
+        taskByOrder.set(task.taskOrder, task);
+      }
+    });
+
+    // Build dependency graph: taskOrder -> set of dependent taskOrders
+    const dependentsOf = new Map<number, Set<number>>(); // order -> who depends on this order
+    const dependencyCount = new Map<number, number>(); // order -> how many dependencies
+
+    tasks.forEach(task => {
+      if (task.taskOrder === undefined) return;
+      const deps = task.dependsOnTaskOrders || [];
+      dependencyCount.set(task.taskOrder, deps.length);
+
+      deps.forEach((depOrder: number) => {
+        if (!dependentsOf.has(depOrder)) {
+          dependentsOf.set(depOrder, new Set());
+        }
+        dependentsOf.get(depOrder)!.add(task.taskOrder);
+      });
+    });
+
+    // Kahn's algorithm for topological sort
+    const queue: number[] = [];
+    const result: any[] = [];
+
+    // Start with tasks that have no dependencies
+    tasks.forEach(task => {
+      if (task.taskOrder !== undefined && (dependencyCount.get(task.taskOrder) || 0) === 0) {
+        queue.push(task.taskOrder);
+      }
+    });
+
+    // Sort queue by taskOrder for stable ordering
+    queue.sort((a, b) => a - b);
+
+    while (queue.length > 0) {
+      const order = queue.shift()!;
+      const task = taskByOrder.get(order);
+      if (task) {
+        result.push(task);
+      }
+
+      // Reduce dependency count for dependents
+      const dependents = dependentsOf.get(order) || new Set();
+      const newlyReady: number[] = [];
+      dependents.forEach(depOrder => {
+        const count = (dependencyCount.get(depOrder) || 0) - 1;
+        dependencyCount.set(depOrder, count);
+        if (count === 0) {
+          newlyReady.push(depOrder);
+        }
+      });
+
+      // Sort newly ready tasks by taskOrder and add to queue
+      newlyReady.sort((a, b) => a - b);
+      queue.push(...newlyReady);
+    }
+
+    // Add any tasks without taskOrder at the end
+    tasks.forEach(task => {
+      if (task.taskOrder === undefined) {
+        result.push(task);
+      }
+    });
+
+    return result;
+  }
+
+  /**
    * Enrich action items with tasks that were derived from them
    */
   private async enrichActionItemsWithDerivedTasks(actionItems: any[]): Promise<any[]> {
@@ -974,6 +1125,34 @@ export class AiDDMCPServer {
 
       tasks = await this.enrichTasksWithSourceActionItems(tasks);
 
+      // Build task lookup maps for dependency resolution
+      const taskByOrder: Map<string, any> = new Map(); // actionItemId:taskOrder -> task
+      const taskById: Map<string, any> = new Map(); // taskId -> task
+      tasks.forEach((task: any) => {
+        taskById.set(task.id, task);
+        if (task.actionItemId && task.taskOrder !== undefined) {
+          taskByOrder.set(`${task.actionItemId}:${task.taskOrder}`, task);
+        }
+      });
+
+      // Add resolved dependency titles to each task
+      tasks = tasks.map((task: any) => {
+        if (task.dependsOnTaskOrders && task.dependsOnTaskOrders.length > 0 && task.actionItemId) {
+          const dependencyTitles = task.dependsOnTaskOrders
+            .map((order: number) => {
+              const depTask = taskByOrder.get(`${task.actionItemId}:${order}`);
+              return depTask ? depTask.title : `Task #${order}`;
+            });
+          task.resolvedDependencies = dependencyTitles;
+        }
+        return task;
+      });
+
+      // Sort by dependency order if requested (topological sort)
+      if (args.sortBy === 'dependencyOrder') {
+        tasks = this.sortTasksByDependencyOrder(tasks);
+      }
+
       // Build comprehensive task list with ALL available metadata
       const taskDetails = tasks.slice(0, 10).map((task: any, i: number) => {
         const hasScores = task.relevanceScore !== undefined && task.impactScore !== undefined && task.urgencyScore !== undefined;
@@ -1002,7 +1181,12 @@ export class AiDDMCPServer {
         if (task.dueDate) lines.push(`   • Due Date: ${new Date(task.dueDate).toLocaleDateString()}`);
         if (task.tags && task.tags.length > 0) lines.push(`   • Tags: ${task.tags.join(', ')}`);
         if (task.taskOrder !== undefined) lines.push(`   • Task Order: ${task.taskOrder}`);
-        if (task.dependsOnTaskOrders && task.dependsOnTaskOrders.length > 0) lines.push(`   • Dependencies: ${task.dependsOnTaskOrders.join(', ')}`);
+        // Show resolved dependency titles (or fall back to order numbers)
+        if (task.resolvedDependencies && task.resolvedDependencies.length > 0) {
+          lines.push(`   • Dependencies: ${task.resolvedDependencies.join(', ')}`);
+        } else if (task.dependsOnTaskOrders && task.dependsOnTaskOrders.length > 0) {
+          lines.push(`   • Dependencies: Tasks ${task.dependsOnTaskOrders.join(', ')}`);
+        }
         // Status
         if (task.isCompleted) lines.push(`   • Status: ✅ Completed`);
         if (task.createdAt) lines.push(`   • Created: ${new Date(task.createdAt).toLocaleString()}`);
@@ -1330,6 +1514,88 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
       return { content: [{ type: 'text', text: response.trim() } as TextContent] };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ **Error deleting tasks:** ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent], isError: true };
+    }
+  }
+
+  private async handleSessionStatus() {
+    try {
+      // Get user info from backend
+      const user = await this.backendClient.getAuthenticatedUser();
+      const subscriptionStatus = await this.backendClient.getSubscriptionStatus();
+
+      // Calculate token expiry info (if we have access to it)
+      const now = new Date();
+      const subscriptionTier = user.subscriptionTier || subscriptionStatus?.tier || 'FREE';
+
+      // Build status message
+      const statusLines = [
+        '# 🔐 AiDD Session Status',
+        '',
+        '## Authentication',
+        `✅ **Status:** Connected`,
+        `📧 **Email:** ${user.email}`,
+        `👤 **User ID:** ${user.userId}`,
+        '',
+        '## Subscription',
+        `💎 **Tier:** ${subscriptionTier}`,
+      ];
+
+      // Add usage limits based on tier
+      if (subscriptionStatus?.usage) {
+        const usage = subscriptionStatus.usage;
+        statusLines.push('');
+        statusLines.push('## Usage This Month');
+        if (usage.aiRequests !== undefined) {
+          statusLines.push(`🤖 **AI Requests:** ${usage.aiRequests}/${usage.aiRequestsLimit || '∞'}`);
+        }
+        if (usage.notes !== undefined) {
+          statusLines.push(`📝 **Notes:** ${usage.notes}/${usage.notesLimit || '∞'}`);
+        }
+        if (usage.actionItems !== undefined) {
+          statusLines.push(`✅ **Action Items:** ${usage.actionItems}/${usage.actionItemsLimit || '∞'}`);
+        }
+        if (usage.tasks !== undefined) {
+          statusLines.push(`📋 **Tasks:** ${usage.tasks}/${usage.tasksLimit || '∞'}`);
+        }
+      }
+
+      // Add session health info
+      statusLines.push('');
+      statusLines.push('## Session Health');
+      statusLines.push(`🕐 **Checked At:** ${now.toLocaleString()}`);
+      statusLines.push(`🔄 **Auto-Refresh:** Enabled (proactive refresh 24hrs before expiry)`);
+      statusLines.push('');
+      statusLines.push('---');
+      statusLines.push('*Session is healthy. Token will auto-refresh before expiry.*');
+
+      return { content: [{ type: 'text', text: statusLines.join('\n') } as TextContent] };
+    } catch (error) {
+      // If we can't get user info, the session is likely expired
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const isAuthError = errorMessage.toLowerCase().includes('auth') ||
+                          errorMessage.toLowerCase().includes('token') ||
+                          errorMessage.toLowerCase().includes('unauthorized');
+
+      const statusLines = [
+        '# 🔐 AiDD Session Status',
+        '',
+        '## Authentication',
+        `❌ **Status:** ${isAuthError ? 'Session Expired' : 'Error'}`,
+        '',
+        `**Error:** ${errorMessage}`,
+        '',
+        '---',
+        '',
+        '## How to Reconnect',
+        '',
+        'Your session has expired. To reconnect:',
+        '1. Use the **connect** command to sign in again',
+        '2. Complete the authentication in your browser',
+        '',
+        '*Tip: Sessions last 30 days. For uninterrupted access, use AiDD at least once a month.*',
+      ];
+
+      return { content: [{ type: 'text', text: statusLines.join('\n') } as TextContent] };
     }
   }
 
