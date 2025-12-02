@@ -123,7 +123,7 @@ export class AuthManager {
   }
 
   /**
-   * Get current access token (refreshing if needed)
+   * Get current access token (refreshing proactively if needed)
    */
   async getAccessToken(): Promise<string | null> {
     // Check if we have valid credentials
@@ -131,12 +131,21 @@ export class AuthManager {
       return null;
     }
 
-    // Check if token is expired
-    if (this.credentials.expiresAt && Date.now() >= this.credentials.expiresAt) {
-      // Try to refresh
+    // Proactive refresh: refresh if token expires in less than 24 hours
+    // This prevents token expiry during active sessions
+    const REFRESH_BUFFER_MS = 24 * 60 * 60 * 1000; // 24 hours
+    const shouldRefresh = this.credentials.expiresAt &&
+      Date.now() >= (this.credentials.expiresAt - REFRESH_BUFFER_MS);
+
+    if (shouldRefresh) {
       if (this.credentials.refreshToken) {
-        await this.refreshToken();
+        const refreshed = await this.refreshToken();
+        if (!refreshed) {
+          // Refresh failed - session expired, user needs to re-authenticate
+          return null;
+        }
       } else {
+        // No refresh token available
         return null;
       }
     }
@@ -149,6 +158,7 @@ export class AuthManager {
    */
   async refreshToken(): Promise<boolean> {
     if (!this.credentials.refreshToken) {
+      console.error('⚠️ No refresh token available. Please re-authenticate using the "connect" command.');
       return false;
     }
 
@@ -164,7 +174,26 @@ export class AuthManager {
       });
 
       if (!response.ok) {
-        // Refresh failed, clear credentials
+        // Parse error response for better messaging
+        let errorReason = 'Unknown error';
+        try {
+          const errorData = await response.json() as { error?: string };
+          errorReason = errorData.error || `HTTP ${response.status}`;
+        } catch {
+          errorReason = `HTTP ${response.status} ${response.statusText}`;
+        }
+
+        console.error('\n' + '='.repeat(60));
+        console.error('⚠️  SESSION EXPIRED - Re-authentication Required');
+        console.error('='.repeat(60));
+        console.error(`Reason: ${errorReason}`);
+        console.error('');
+        console.error('Your session has expired. To continue using AiDD:');
+        console.error('  1. Use the "connect" command to sign in again');
+        console.error('  2. Or restart Claude and re-authenticate');
+        console.error('='.repeat(60) + '\n');
+
+        // Clear expired credentials
         this.credentials = {};
         await this.saveCredentials();
         return false;
@@ -176,9 +205,11 @@ export class AuthManager {
       this.credentials.expiresAt = Date.now() + (data.expiresIn * 1000);
 
       await this.saveCredentials();
+      console.error('✅ Session refreshed successfully');
       return true;
     } catch (error) {
-      console.error('Token refresh error:', error);
+      console.error('\n⚠️ Token refresh failed:', error);
+      console.error('   Please use the "connect" command to re-authenticate.\n');
       return false;
     }
   }
@@ -206,6 +237,41 @@ export class AuthManager {
       email: this.credentials.email,
       userId: this.credentials.userId,
       subscription: this.credentials.subscription
+    };
+  }
+
+  /**
+   * Get detailed session status for user visibility
+   */
+  getSessionStatus(): {
+    isAuthenticated: boolean;
+    email?: string;
+    userId?: string;
+    subscription?: string;
+    tokenExpiresAt?: number;
+    tokenExpiresInDays?: number;
+    tokenExpiresInHours?: number;
+    needsRefreshSoon: boolean;
+    isExpired: boolean;
+  } {
+    const now = Date.now();
+    const expiresAt = this.credentials.expiresAt;
+    const isExpired = expiresAt ? now >= expiresAt : true;
+    const msUntilExpiry = expiresAt ? expiresAt - now : 0;
+    const hoursUntilExpiry = Math.max(0, Math.floor(msUntilExpiry / (1000 * 60 * 60)));
+    const daysUntilExpiry = Math.max(0, Math.floor(msUntilExpiry / (1000 * 60 * 60 * 24)));
+    const needsRefreshSoon = hoursUntilExpiry < 24;
+
+    return {
+      isAuthenticated: this.isSignedIn() && !isExpired,
+      email: this.credentials.email,
+      userId: this.credentials.userId,
+      subscription: this.credentials.subscription,
+      tokenExpiresAt: expiresAt,
+      tokenExpiresInDays: daysUntilExpiry,
+      tokenExpiresInHours: hoursUntilExpiry,
+      needsRefreshSoon,
+      isExpired
     };
   }
 

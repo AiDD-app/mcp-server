@@ -270,6 +270,7 @@ class AiDDBrowserAuthServer {
           if (accessToken || idToken) {
             try {
               // Send OAuth token to backend for validation and exchange
+              // clientType: 'mcp' gives us 1-year refresh tokens instead of 90 days
               const signinResponse = await fetch(`${BACKEND_URL}/api/auth/oauth/signin`, {
                 method: 'POST',
                 headers: {
@@ -282,7 +283,8 @@ class AiDDBrowserAuthServer {
                   authCode: null,
                   deviceId: `mcp-${sessionId}`,
                   deviceName: 'Claude Desktop MCP',
-                  platform: 'macos'
+                  platform: 'macos',
+                  clientType: 'mcp'
                 })
               });
 
