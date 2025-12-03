@@ -148,6 +148,16 @@ export class AiDDBackendClient extends EventEmitter {
     return BATCH_LIMITS[this.subscriptionTier] || BATCH_LIMITS.FREE;
   }
 
+  // Public getter for subscription tier - used by MCP server for auto-scoring decisions
+  getSubscriptionTier(): 'FREE' | 'PREMIUM' | 'PRO' {
+    return this.subscriptionTier;
+  }
+
+  // Check if user has paid subscription (PREMIUM or PRO)
+  isPaidUser(): boolean {
+    return this.subscriptionTier === 'PREMIUM' || this.subscriptionTier === 'PRO';
+  }
+
   // Fetch and cache subscription tier from backend
   private async fetchSubscriptionTier(): Promise<void> {
     try {
@@ -632,10 +642,10 @@ export class AiDDBackendClient extends EventEmitter {
     }
   }
 
-  async startConversionJobAsync(actionItems: ActionItem[]): Promise<{ jobId: string; actionItemCount: number }> {
+  async startConversionJobAsync(actionItems: ActionItem[], skipAutoScoring: boolean = false): Promise<{ jobId: string; actionItemCount: number }> {
     if (!this.deviceToken) await this.authenticate();
     const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
-    console.log('[MCP] Starting async conversion for', actionItems.length, 'action items');
+    console.log('[MCP] Starting async conversion for', actionItems.length, 'action items, skipAutoScoring=', skipAutoScoring);
     try {
       const response = await this.fetchWithTimeout(`${this.baseUrl}/api/ai/convert-action-items`, {
         method: 'POST',
@@ -650,6 +660,7 @@ export class AiDDBackendClient extends EventEmitter {
           conversionMode: 'adhd-optimized',
           breakdownComplexTasks: true,
           maxTasksPerItem: 5,
+          skipAutoScoring: skipAutoScoring,
         }),
       });
       if (!response.ok) throw new Error(`Conversion failed: ${response.statusText}`);
@@ -668,11 +679,12 @@ export class AiDDBackendClient extends EventEmitter {
    * Start conversion job using convertAll flag - backend fetches action items directly
    * This is MUCH faster than fetching action items client-side first
    * @param skipDeduplication - If true, skips checking for already-converted items (faster but may create duplicates)
+   * @param skipAutoScoring - If true, skips automatic AI scoring after conversion (default: false, scoring runs for paid users)
    */
-  async startConversionJobAllAsync(skipDeduplication: boolean = false): Promise<{ jobId: string | null; message: string }> {
+  async startConversionJobAllAsync(skipDeduplication: boolean = false, skipAutoScoring: boolean = false): Promise<{ jobId: string | null; message: string }> {
     if (!this.deviceToken) await this.authenticate();
     const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
-    console.log(`[MCP] Starting async conversion with convertAll=true, skipDeduplication=${skipDeduplication}`);
+    console.log(`[MCP] Starting async conversion with convertAll=true, skipDeduplication=${skipDeduplication}, skipAutoScoring=${skipAutoScoring}`);
     try {
       const response = await this.fetchWithTimeout(`${this.baseUrl}/api/ai/convert-action-items`, {
         method: 'POST',
@@ -685,6 +697,7 @@ export class AiDDBackendClient extends EventEmitter {
           deviceId: deviceId,
           convertAll: true,  // Backend fetches action items from Firestore
           skipDeduplication: skipDeduplication,
+          skipAutoScoring: skipAutoScoring,
           conversionMode: 'adhd-optimized',
           breakdownComplexTasks: true,
           maxTasksPerItem: 5,
@@ -1569,5 +1582,87 @@ export class AiDDBackendClient extends EventEmitter {
    */
   getAccessToken(): string | undefined {
     return this.deviceToken;
+  }
+
+  // =============================================================================
+  // AI JOB STATUS METHODS
+  // =============================================================================
+
+  /**
+   * Get status of a specific AI job
+   */
+  async getJobStatus(jobId: string): Promise<{
+    id: string;
+    type: string;
+    status: 'pending' | 'processing' | 'completed' | 'failed';
+    progress?: number;
+    message?: string;
+    result?: any;
+    error?: string;
+    createdAt: string;
+    updatedAt: string;
+    completedAt?: string;
+  }> {
+    if (!this.deviceToken) await this.authenticate();
+    try {
+      const headers = await this.getAuthHeaders();
+      const response = await this.fetchWithTimeout(`${this.baseUrl}/api/ai/jobs/${jobId}`, {
+        method: 'GET',
+        headers: headers as Record<string, string>,
+        timeout: 10000,
+      });
+      if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error(`Job ${jobId} not found`);
+        }
+        throw new Error(`Failed to get job status: ${response.statusText}`);
+      }
+      const data = await response.json() as { success?: boolean; job?: any };
+      // Backend returns { success: true, job: {...} } - extract the job object
+      return data.job || data;
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        throw new Error('Request timed out while checking job status');
+      }
+      this.emit('error', { type: 'getJobStatus', error });
+      throw error;
+    }
+  }
+
+  /**
+   * List all AI jobs for the current user
+   */
+  async listJobs(includeCompleted: boolean = false): Promise<Array<{
+    id: string;
+    type: string;
+    status: 'pending' | 'processing' | 'completed' | 'failed';
+    progress?: number;
+    message?: string;
+    createdAt: string;
+    updatedAt: string;
+  }>> {
+    if (!this.deviceToken) await this.authenticate();
+    try {
+      const headers = await this.getAuthHeaders();
+      const params = new URLSearchParams();
+      if (includeCompleted) params.append('includeCompleted', 'true');
+
+      const response = await this.fetchWithTimeout(`${this.baseUrl}/api/ai/jobs?${params.toString()}`, {
+        method: 'GET',
+        headers: headers as Record<string, string>,
+        timeout: 10000,
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to list jobs: ${response.statusText}`);
+      }
+      const data = await response.json() as { jobs?: any[] };
+      return data.jobs || [];
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        throw new Error('Request timed out while listing jobs');
+      }
+      this.emit('error', { type: 'listJobs', error });
+      throw error;
+    }
   }
 }

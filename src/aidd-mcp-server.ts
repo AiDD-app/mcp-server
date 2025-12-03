@@ -362,6 +362,9 @@ export class AiDDMCPServer {
           case 'score_tasks':
             result = await this.handleScoreTasks(args);
             break;
+          case 'check_ai_jobs':
+            result = await this.handleCheckAIJobs(args);
+            break;
           case 'update_note':
             result = await this.handleUpdateNote(args);
             break;
@@ -558,6 +561,7 @@ export class AiDDMCPServer {
             breakdownMode: { type: 'string', enum: ['simple', 'adhd-optimized', 'detailed'], description: 'Task breakdown mode (default: adhd-optimized)' },
             waitForCompletion: { type: 'boolean', description: 'AVOID using true - causes timeouts. Default false returns immediately with job ID.' },
             skipDeduplication: { type: 'boolean', description: 'Skip checking for already-converted items. Faster but may create duplicates.' },
+            skipAutoScoring: { type: 'boolean', description: 'Skip automatic AI scoring after conversion. Default false (scoring runs automatically for PREMIUM/PRO users).' },
           },
         },
       },
@@ -571,6 +575,18 @@ export class AiDDMCPServer {
             considerCurrentEnergy: { type: 'boolean', description: 'Consider current energy levels (default: true)' },
             timeOfDay: { type: 'string', enum: ['morning', 'afternoon', 'evening', 'auto'], description: 'Time of day for optimization (default: auto)' },
             waitForCompletion: { type: 'boolean', description: 'AVOID using true - causes timeouts. Default false returns immediately.' },
+          },
+        },
+      },
+      {
+        name: 'check_ai_jobs',
+        description: 'Check the status and progress of AI processing jobs (action item extraction, task conversion, AI scoring). Use this to monitor long-running operations or check if a job has completed.',
+        annotations: { readOnlyHint: true },
+        inputSchema: {
+          type: 'object',
+          properties: {
+            jobId: { type: 'string', description: 'Optional: Specific job ID to check. If not provided, lists all active jobs.' },
+            includeCompleted: { type: 'boolean', description: 'Include completed jobs in the list (default: false)' },
           },
         },
       },
@@ -1251,7 +1267,7 @@ export class AiDDMCPServer {
       const usageCheck = await this.checkOperationLimit('conversion');
       if (!usageCheck.allowed) return this.formatLimitReachedResponse(usageCheck);
 
-      const { actionItemIds, convertAll, breakdownMode = 'adhd-optimized', waitForCompletion = false, skipDeduplication = false } = args;
+      const { actionItemIds, convertAll, breakdownMode = 'adhd-optimized', waitForCompletion = false, skipDeduplication = false, skipAutoScoring = false } = args;
 
       // GUARD: Require explicit intent - don't accidentally convert all items
       // If user didn't specify IDs and didn't explicitly set convertAll=true, ask for clarification
@@ -1302,8 +1318,10 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
         }
 
         if (!waitForCompletion) {
-          const { jobId, actionItemCount } = await this.backendClient.startConversionJobAsync(actionItems);
-          let response = `🚀 **AI Conversion Started**\n\nConverting ${actionItemCount} selected action item${actionItemCount > 1 ? 's' : ''} to ADHD-optimized tasks.\n\n**What's happening:**\n• AI is breaking down action items into manageable tasks\n• Tasks are being optimized for ADHD-friendly execution\n• Each action item may generate multiple subtasks\n\n**Check your results:**\n⏱️ **Check back in ~5 minutes** - use the \`list_tasks\` tool to see your converted tasks.\n\nJob ID: \`${jobId}\``;
+          const { jobId, actionItemCount } = await this.backendClient.startConversionJobAsync(actionItems, skipAutoScoring);
+          const isPaid = this.backendClient.isPaidUser();
+          const willAutoScore = isPaid && !skipAutoScoring;
+          let response = `🚀 **AI Conversion Started**\n\nConverting ${actionItemCount} selected action item${actionItemCount > 1 ? 's' : ''} to ADHD-optimized tasks.\n\n**What's happening:**\n• AI is breaking down action items into manageable tasks\n• Tasks are being optimized for ADHD-friendly execution\n• Each action item may generate multiple subtasks${willAutoScore ? '\n• 🎯 **Auto AI Scoring** will run after conversion (Premium/Pro benefit)' : ''}${skipAutoScoring ? '\n• ⏭️ Auto-scoring skipped as requested' : ''}\n\n**Check your results:**\n⏱️ **Check back in ~5 minutes** - use the \`list_tasks\` tool to see your${willAutoScore ? ' scored and' : ''} converted tasks.\n\nJob ID: \`${jobId}\``;
           response = this.appendUsageWarning(response, usageCheck);
           return { content: [{ type: 'text', text: response.trim() } as TextContent] };
         }
@@ -1319,25 +1337,47 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
             console.error('[MCP] Failed to save converted tasks:', saveError);
           }
         }
-        let response = this.formatConversionResult(actionItems, tasks, savedCount, breakdownMode);
+
+        // Auto-trigger AI scoring for paid users after sync conversion (unless skipped)
+        let autoScoringResult: { jobId?: string; scored?: boolean; count?: number; skipped?: boolean } = {};
+        if (skipAutoScoring) {
+          console.log(`[MCP] Skipping auto-scoring as requested by user`);
+          autoScoringResult = { skipped: true };
+        } else if (savedCount > 0 && this.backendClient.isPaidUser()) {
+          try {
+            console.log(`[MCP] Auto-triggering AI scoring for paid user after conversion (${savedCount} tasks)`);
+            const allTasks = await this.backendClient.listTasks({});
+            if (allTasks.length > 0) {
+              const { jobId, taskCount } = await this.backendClient.startScoringJobAsync(allTasks);
+              autoScoringResult = { jobId, scored: true, count: taskCount };
+              console.log(`[MCP] Auto-scoring job started: ${jobId} for ${taskCount} tasks`);
+            }
+          } catch (scoringError) {
+            console.error('[MCP] Auto-scoring failed (non-fatal):', scoringError);
+          }
+        }
+
+        let response = this.formatConversionResult(actionItems, tasks, savedCount, breakdownMode, autoScoringResult);
         response = this.appendUsageWarning(response, usageCheck);
         return { content: [{ type: 'text', text: response } as TextContent] };
       }
 
       // MODE 2: CONVERT ALL - No specific IDs provided (or explicit convertAll=true)
       // This is the default behavior when no actionItemIds are specified
-      console.log(`[MCP] Converting all action items (convertAll=${convertAll}, skipDeduplication=${skipDeduplication})`);
+      console.log(`[MCP] Converting all action items (convertAll=${convertAll}, skipDeduplication=${skipDeduplication}, skipAutoScoring=${skipAutoScoring})`);
 
       if (!waitForCompletion) {
         // FAST PATH: Backend handles fetching and deduplication
-        const result = await this.backendClient.startConversionJobAllAsync(skipDeduplication);
+        const result = await this.backendClient.startConversionJobAllAsync(skipDeduplication, skipAutoScoring);
 
         // Handle "all already converted" case
         if (!result.jobId) {
           return { content: [{ type: 'text', text: `✅ **All Action Items Already Converted**\n\n${result.message}\n\nTo re-convert specific action items, use the \`actionItemIds\` parameter with specific IDs.` } as TextContent] };
         }
 
-        let response = `🚀 **AI Conversion Started**\n\n${result.message}\n\n**What's happening:**\n• AI is breaking down action items into manageable tasks\n• ${skipDeduplication ? 'Deduplication skipped (faster)' : 'Already-converted items are automatically skipped'}\n• Tasks are optimized for ADHD-friendly execution\n\n**Check your results:**\n⏱️ **Check back in ~5 minutes** - use the \`list_tasks\` tool to see your converted tasks.\n\nJob ID: \`${result.jobId}\``;
+        const isPaid = this.backendClient.isPaidUser();
+        const willAutoScore = isPaid && !skipAutoScoring;
+        let response = `🚀 **AI Conversion Started**\n\n${result.message}\n\n**What's happening:**\n• AI is breaking down action items into manageable tasks\n• ${skipDeduplication ? 'Deduplication skipped (faster)' : 'Already-converted items are automatically skipped'}\n• Tasks are optimized for ADHD-friendly execution${willAutoScore ? '\n• 🎯 **Auto AI Scoring** will run after conversion (Premium/Pro benefit)' : ''}${skipAutoScoring ? '\n• ⏭️ Auto-scoring skipped as requested' : ''}\n\n**Check your results:**\n⏱️ **Check back in ~5 minutes** - use the \`list_tasks\` tool to see your${willAutoScore ? ' scored and' : ''} converted tasks.\n\nJob ID: \`${result.jobId}\``;
         response = this.appendUsageWarning(response, usageCheck);
         return { content: [{ type: 'text', text: response.trim() } as TextContent] };
       }
@@ -1361,7 +1401,27 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
           console.error('[MCP] Failed to save converted tasks:', saveError);
         }
       }
-      let response = this.formatConversionResult(allActionItems, tasks, savedCount, breakdownMode);
+
+      // Auto-trigger AI scoring for paid users after sync conversion (unless skipped)
+      let autoScoringResult: { jobId?: string; scored?: boolean; count?: number; skipped?: boolean } = {};
+      if (skipAutoScoring) {
+        console.log(`[MCP] Skipping auto-scoring as requested by user`);
+        autoScoringResult = { skipped: true };
+      } else if (savedCount > 0 && this.backendClient.isPaidUser()) {
+        try {
+          console.log(`[MCP] Auto-triggering AI scoring for paid user after conversion (${savedCount} tasks)`);
+          const allTasks = await this.backendClient.listTasks({});
+          if (allTasks.length > 0) {
+            const { jobId, taskCount } = await this.backendClient.startScoringJobAsync(allTasks);
+            autoScoringResult = { jobId, scored: true, count: taskCount };
+            console.log(`[MCP] Auto-scoring job started: ${jobId} for ${taskCount} tasks`);
+          }
+        } catch (scoringError) {
+          console.error('[MCP] Auto-scoring failed (non-fatal):', scoringError);
+        }
+      }
+
+      let response = this.formatConversionResult(allActionItems, tasks, savedCount, breakdownMode, autoScoringResult);
       response = this.appendUsageWarning(response, usageCheck);
       return { content: [{ type: 'text', text: response } as TextContent] };
 
@@ -1376,8 +1436,15 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
     }
   }
 
-  private formatConversionResult(actionItems: any[], tasks: any[], savedCount: number, breakdownMode: string): string {
-    return `✨ **Tasks Created (ADHD-Optimized)**\n\n**Summary:**\n• Action items converted: ${actionItems.length}\n• Tasks created: ${tasks.length}\n• Tasks saved: ${savedCount}\n• Breakdown mode: ${breakdownMode}\n• Average tasks per item: ${(tasks.length / actionItems.length).toFixed(1)}\n\n**Created Tasks:**\n${tasks.slice(0, 15).map((task: any, i: number) => `${i + 1}. **${task.title}**\n   • Time: ${task.estimatedTime} min\n   • Energy: ${task.energyRequired}\n   • Type: ${task.taskType}\n   ${task.dependsOnTaskOrders && task.dependsOnTaskOrders.length > 0 ? `• Depends on: Task ${task.dependsOnTaskOrders.join(', ')}` : ''}`).join('\n')}\n${tasks.length > 15 ? `\n... and ${tasks.length - 15} more tasks` : ''}\n\n**Task Breakdown:**\n• Quick wins: ${tasks.filter((t: any) => t.taskType === 'quick_win').length}\n• Focus required: ${tasks.filter((t: any) => t.taskType === 'focus_required').length}\n• Collaborative: ${tasks.filter((t: any) => t.taskType === 'collaborative').length}\n• Creative: ${tasks.filter((t: any) => t.taskType === 'creative').length}\n• Administrative: ${tasks.filter((t: any) => t.taskType === 'administrative').length}\n\n✅ ${savedCount} tasks have been saved to your AiDD account.`;
+  private formatConversionResult(actionItems: any[], tasks: any[], savedCount: number, breakdownMode: string, autoScoringResult?: { jobId?: string; scored?: boolean; count?: number }): string {
+    let result = `✨ **Tasks Created (ADHD-Optimized)**\n\n**Summary:**\n• Action items converted: ${actionItems.length}\n• Tasks created: ${tasks.length}\n• Tasks saved: ${savedCount}\n• Breakdown mode: ${breakdownMode}\n• Average tasks per item: ${(tasks.length / actionItems.length).toFixed(1)}\n\n**Created Tasks:**\n${tasks.slice(0, 15).map((task: any, i: number) => `${i + 1}. **${task.title}**\n   • Time: ${task.estimatedTime} min\n   • Energy: ${task.energyRequired}\n   • Type: ${task.taskType}\n   ${task.dependsOnTaskOrders && task.dependsOnTaskOrders.length > 0 ? `• Depends on: Task ${task.dependsOnTaskOrders.join(', ')}` : ''}`).join('\n')}\n${tasks.length > 15 ? `\n... and ${tasks.length - 15} more tasks` : ''}\n\n**Task Breakdown:**\n• Quick wins: ${tasks.filter((t: any) => t.taskType === 'quick_win').length}\n• Focus required: ${tasks.filter((t: any) => t.taskType === 'focus_required').length}\n• Collaborative: ${tasks.filter((t: any) => t.taskType === 'collaborative').length}\n• Creative: ${tasks.filter((t: any) => t.taskType === 'creative').length}\n• Administrative: ${tasks.filter((t: any) => t.taskType === 'administrative').length}\n\n✅ ${savedCount} tasks have been saved to your AiDD account.`;
+
+    // Add auto-scoring info if triggered
+    if (autoScoringResult?.scored && autoScoringResult.jobId) {
+      result += `\n\n🎯 **Auto AI Scoring Started** (Premium/Pro benefit)\n• Scoring ${autoScoringResult.count || savedCount} tasks in background\n• Job ID: \`${autoScoringResult.jobId}\`\n• Check back in ~5 minutes to see scored tasks`;
+    }
+
+    return result;
   }
 
   private async handleScoreTasks(args: any) {
@@ -1404,6 +1471,107 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
       return { content: [{ type: 'text', text: response } as TextContent] };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error scoring tasks: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
+    }
+  }
+
+  private async handleCheckAIJobs(args: any) {
+    try {
+      const { jobId, includeCompleted = false } = args;
+
+      // If specific job ID provided, get that job's status
+      if (jobId) {
+        const job = await this.backendClient.getJobStatus(jobId);
+        if (!job) {
+          return { content: [{ type: 'text', text: `❌ **Job Not Found**\n\nNo job found with ID: \`${jobId}\`\n\nThis job may have expired (jobs are kept for 24 hours) or the ID is incorrect.` } as TextContent] };
+        }
+
+        const statusEmoji = job.status === 'completed' ? '✅' : job.status === 'processing' ? '⏳' : job.status === 'failed' ? '❌' : '📋';
+        const typeLabels: Record<string, string> = {
+          'score_tasks': 'Task Scoring',
+          'convert_action_items': 'Task Conversion',
+          'extract_action_items': 'Action Item Extraction'
+        };
+
+        let response = `${statusEmoji} **Job Status**\n\n`;
+        response += `**Job ID:** \`${job.id}\`\n`;
+        response += `**Type:** ${typeLabels[job.type] || job.type}\n`;
+        response += `**Status:** ${job.status}\n`;
+        if (job.progress !== undefined) {
+          response += `**Progress:** ${Math.round(job.progress)}%\n`;
+        }
+        if (job.message) {
+          response += `**Message:** ${job.message}\n`;
+        }
+        if (job.createdAt) {
+          response += `**Started:** ${new Date(job.createdAt).toLocaleString()}\n`;
+        }
+        if (job.completedAt) {
+          response += `**Completed:** ${new Date(job.completedAt).toLocaleString()}\n`;
+        }
+        if (job.error) {
+          response += `**Error:** ${job.error}\n`;
+        }
+
+        // Add next steps based on status
+        if (job.status === 'processing') {
+          response += `\n**💡 Next Steps:**\n• Wait for the job to complete\n• Check again in a minute using \`check_ai_jobs\` with this job ID`;
+        } else if (job.status === 'completed') {
+          const nextStep = job.type === 'score_tasks' ? 'Use `list_tasks` to see your scored tasks' :
+                           job.type === 'convert_action_items' ? 'Use `list_tasks` to see your converted tasks' :
+                           job.type === 'extract_action_items' ? 'Use `list_action_items` to see extracted items' : '';
+          if (nextStep) {
+            response += `\n**💡 Next Steps:**\n• ${nextStep}`;
+          }
+        }
+
+        return { content: [{ type: 'text', text: response.trim() } as TextContent] };
+      }
+
+      // List all jobs
+      const jobs = await this.backendClient.listJobs(includeCompleted);
+
+      if (!jobs || jobs.length === 0) {
+        return { content: [{ type: 'text', text: `📋 **No Active AI Jobs**\n\nYou don't have any ${includeCompleted ? '' : 'active '}AI processing jobs.\n\n**To start a job:**\n• Use \`extract_action_items\` to extract action items from notes\n• Use \`convert_to_tasks\` to convert action items to tasks\n• Use \`score_tasks\` to prioritize your tasks` } as TextContent] };
+      }
+
+      const typeLabels: Record<string, string> = {
+        'score_tasks': '🎯 Task Scoring',
+        'convert_action_items': '🔄 Task Conversion',
+        'extract_action_items': '📝 Action Item Extraction'
+      };
+
+      const statusEmojis: Record<string, string> = {
+        'completed': '✅',
+        'processing': '⏳',
+        'pending': '📋',
+        'failed': '❌',
+        'cancelled': '🚫'
+      };
+
+      let response = `📊 **AI Jobs (${jobs.length} ${includeCompleted ? 'total' : 'active'})**\n\n`;
+
+      for (const job of jobs) {
+        const emoji = statusEmojis[job.status] || '📋';
+        const typeLabel = typeLabels[job.type] || job.type;
+        response += `${emoji} **${typeLabel}**\n`;
+        response += `   • ID: \`${job.id}\`\n`;
+        response += `   • Status: ${job.status}`;
+        if (job.progress !== undefined && job.status === 'processing') {
+          response += ` (${Math.round(job.progress)}%)`;
+        }
+        response += '\n';
+        if (job.message) {
+          response += `   • ${job.message}\n`;
+        }
+        response += '\n';
+      }
+
+      response += `**💡 Tip:** Use \`check_ai_jobs\` with a specific \`jobId\` to get detailed status.`;
+
+      return { content: [{ type: 'text', text: response.trim() } as TextContent] };
+
+    } catch (error) {
+      return { content: [{ type: 'text', text: `❌ **Error checking jobs:** ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
     }
   }
 
