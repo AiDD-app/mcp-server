@@ -1606,6 +1606,10 @@ export class AiDDBackendClient extends EventEmitter {
     if (!this.deviceToken) await this.authenticate();
     try {
       const headers = await this.getAuthHeaders();
+      // CRITICAL: Backend requires X-Device-ID header for job endpoints
+      const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
+      (headers as Record<string, string>)['X-Device-ID'] = deviceId;
+
       const response = await this.fetchWithTimeout(`${this.baseUrl}/api/ai/jobs/${jobId}`, {
         method: 'GET',
         headers: headers as Record<string, string>,
@@ -1644,6 +1648,10 @@ export class AiDDBackendClient extends EventEmitter {
     if (!this.deviceToken) await this.authenticate();
     try {
       const headers = await this.getAuthHeaders();
+      // CRITICAL: Backend requires X-Device-ID header for job endpoints
+      const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
+      (headers as Record<string, string>)['X-Device-ID'] = deviceId;
+
       const params = new URLSearchParams();
       if (includeCompleted) params.append('includeCompleted', 'true');
 
