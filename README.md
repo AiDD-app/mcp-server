@@ -3,7 +3,7 @@
 **Official AiDD MCP Web Connector** - ADHD-optimized productivity platform accessible from Claude web, mobile, and desktop.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-4.3.7-blue.svg)](https://github.com/aidd-app/mcp-server)
+[![Version](https://img.shields.io/badge/version-4.3.22-blue.svg)](https://github.com/aidd-app/mcp-server)
 
 ## 🌐 Universal Access
 
@@ -41,11 +41,19 @@ Simply connect via URL - no local installation required.
 - **Full CRUD**: Create, read, **update**, and **delete** tasks
 - Batch delete support
 
-### 🚀 Async AI Processing (New in v4.1.0)
+### 🚀 Async AI Processing
 - AI operations run in background by default for better UX
 - No timeout issues for large data sets
-- Check results in 2-3 minutes with `list_tasks`
+- **New**: `check_ai_jobs` tool to monitor job progress in real-time
+- Check results with `list_tasks` or `list_action_items`
 - Optional `waitForCompletion` parameter for small batches
+
+### ⚡ Auto AI Scoring (New in v4.3.22)
+For **paid users (PRO/PREMIUM)**, AI scoring is automatically triggered after task conversion:
+- **MCP**: Always auto-scores after conversion
+- **Web/iOS**: Auto-scores when converting more than 1 action item
+
+This means your tasks are immediately prioritized without needing a separate scoring step!
 
 ### 🔐 Authentication
 - Browser-based OAuth (Google, Microsoft, Apple)
@@ -190,11 +198,38 @@ What's happening:
 • Tasks are being optimized for ADHD-friendly execution
 • Each action item may generate multiple subtasks
 
+✨ Auto AI Scoring: Enabled (PRO subscription detected)
+• Your tasks will be automatically prioritized after conversion
+
 Check your results:
 ⏱️ Check back in 2-3 minutes - use the `list_tasks` tool to see your converted tasks.
+💡 Or use `check_ai_jobs` to monitor progress in real-time.
 ```
 
-### Example 4: Updating and Deleting Items
+### Example 4: Monitoring AI Job Progress
+
+**Scenario**: You started a large conversion and want to check progress.
+
+```
+You: "Check the status of my AI jobs"
+
+Claude: [Uses check_ai_jobs]
+
+Response:
+📊 AI Jobs (2 active)
+
+⏳ **🔄 Task Conversion**
+   • ID: `job_abc123`
+   • Status: processing (75%)
+
+✅ **🎯 Task Scoring**
+   • ID: `job_def456`
+   • Status: completed
+
+💡 Tip: Use `check_ai_jobs` with a specific `jobId` to get detailed status.
+```
+
+### Example 5: Updating and Deleting Items
 
 **Scenario**: You need to modify or clean up your task list.
 
@@ -209,7 +244,7 @@ Response:
 Updated task: Complete quarterly report
 • ID: abc123
 • Status: ✅ Completed
-• Updated: 11/25/2025, 5:30 PM
+• Updated: 12/02/2025, 5:30 PM
 
 🗑️ Action Items Deleted
 
@@ -218,7 +253,7 @@ Successfully deleted 3 action items.
 🔗 Also deleted 5 derived tasks.
 ```
 
-### Example 5: Weekly Review and Planning
+### Example 6: Weekly Review and Planning
 
 **Scenario**: End of week review to see accomplishments and plan ahead.
 
@@ -285,7 +320,7 @@ presentation while your energy is highest.
 | `update_action_item` | Update existing action item (title, priority, due date, etc.) | Write |
 | `delete_action_items` | Delete action items and their derived tasks | Destructive |
 
-### Tasks (6 tools)
+### Tasks (7 tools)
 | Tool | Description | Type |
 |------|-------------|------|
 | `list_tasks` | Browse tasks with AI scores | Read |
@@ -296,12 +331,17 @@ presentation while your energy is highest.
 | `update_task` | Update existing task (title, energy, time, completed, etc.) | Write |
 | `delete_tasks` | Delete one or more tasks by ID | Destructive |
 
+### AI Jobs (1 tool)
+| Tool | Description | Type |
+|------|-------------|------|
+| `check_ai_jobs` | Monitor AI job progress (extraction, conversion, scoring) | Read |
+
 ### Authentication (1 tool)
 | Tool | Description | Type |
 |------|-------------|------|
 | `status` | Check authentication status and account info | Read |
 
-**Total**: 17 tools (8 read-only, 6 write, 3 destructive)
+**Total**: 18 tools (9 read-only, 6 write, 3 destructive)
 
 ---
 
@@ -357,10 +397,10 @@ curl https://mcp.aidd.app/.well-known/oauth-authorization-server
 
 ## Subscription Tiers
 
-| Tier | AI Scoring | AI Extractions | Task Conversions | Cooldown |
-|------|------------|----------------|------------------|----------|
-| **FREE** | 1/month | 3/week | 1/week | 5 min |
-| **PRO** | 10/day | 200/week | 200/week | None |
+| Tier | AI Scoring | AI Extractions | Task Conversions | Auto-Scoring | Cooldown |
+|------|------------|----------------|------------------|--------------|----------|
+| **FREE** | 1/month | 3/week | 1/week | ❌ | 5 min |
+| **PRO** | 10/day | 200/week | 200/week | ✅ | None |
 
 **PRO Plans**: $4.99/month or $49.99/year (save $10)
 
@@ -519,6 +559,18 @@ MIT © AiDD Team
 ---
 
 ## Changelog
+
+### v4.3.22 (2025-12-02)
+
+- 🔍 **New Tool**: `check_ai_jobs` - Monitor AI job progress in real-time
+  - Check specific job by ID or list all active jobs
+  - Shows job type, status, progress percentage, and timestamps
+  - Provides helpful next steps based on job status
+- ⚡ **Auto AI Scoring**: Paid users (PRO/PREMIUM) now get automatic task scoring after conversion
+  - MCP: Always auto-scores after task conversion
+  - Web/iOS: Auto-scores when converting more than 1 action item
+  - No separate scoring step needed - tasks are prioritized automatically
+- 📊 **Total tools**: 17 → 18
 
 ### v4.3.18 (2025-11-30)
 
