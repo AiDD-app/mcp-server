@@ -1327,34 +1327,24 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
         }
 
         // Synchronous conversion for specific items
-        const tasks = await this.backendClient.convertToTasks(actionItems);
-        let savedCount = 0;
-        if (tasks.length > 0) {
-          try {
-            const saveResult = await this.backendClient.saveTasks(tasks);
-            savedCount = saveResult.count;
-          } catch (saveError) {
-            console.error('[MCP] Failed to save converted tasks:', saveError);
-          }
-        }
+        // FIX: Backend auto-saves tasks after conversion via saveTasksToFirestore()
+        // Removed duplicate saveTasks() call that was causing task duplication (9x duplicates)
+        const conversionResult = await this.backendClient.convertToTasksWithMetadata(actionItems, skipAutoScoring);
+        const tasks = conversionResult.tasks;
+        const savedCount = conversionResult.savedCount || tasks.length;
 
-        // Auto-trigger AI scoring for paid users after sync conversion (unless skipped)
+        // Auto-scoring is now handled by the backend automatically for MCP users
+        // Backend triggers auto-scoring after conversion for paid users (unless skipAutoScoring=true)
         let autoScoringResult: { jobId?: string; scored?: boolean; count?: number; skipped?: boolean } = {};
-        if (skipAutoScoring) {
-          console.log(`[MCP] Skipping auto-scoring as requested by user`);
+        if (conversionResult.autoScoringJobId) {
+          autoScoringResult = {
+            jobId: conversionResult.autoScoringJobId,
+            scored: true,
+            count: conversionResult.autoScoringTaskCount || savedCount
+          };
+          console.log(`[MCP] Backend auto-scoring job: ${conversionResult.autoScoringJobId}`);
+        } else if (skipAutoScoring) {
           autoScoringResult = { skipped: true };
-        } else if (savedCount > 0 && this.backendClient.isPaidUser()) {
-          try {
-            console.log(`[MCP] Auto-triggering AI scoring for paid user after conversion (${savedCount} tasks)`);
-            const allTasks = await this.backendClient.listTasks({});
-            if (allTasks.length > 0) {
-              const { jobId, taskCount } = await this.backendClient.startScoringJobAsync(allTasks);
-              autoScoringResult = { jobId, scored: true, count: taskCount };
-              console.log(`[MCP] Auto-scoring job started: ${jobId} for ${taskCount} tasks`);
-            }
-          } catch (scoringError) {
-            console.error('[MCP] Auto-scoring failed (non-fatal):', scoringError);
-          }
         }
 
         let response = this.formatConversionResult(actionItems, tasks, savedCount, breakdownMode, autoScoringResult);
@@ -1391,34 +1381,23 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
         return { content: [{ type: 'text', text: `📋 **No Action Items Found**\n\nYou don't have any action items to convert. Use \`extract_action_items\` to extract action items from your notes first.` } as TextContent] };
       }
 
-      const tasks = await this.backendClient.convertToTasks(allActionItems);
-      let savedCount = 0;
-      if (tasks.length > 0) {
-        try {
-          const saveResult = await this.backendClient.saveTasks(tasks);
-          savedCount = saveResult.count;
-        } catch (saveError) {
-          console.error('[MCP] Failed to save converted tasks:', saveError);
-        }
-      }
+      // FIX: Backend auto-saves tasks after conversion via saveTasksToFirestore()
+      // Removed duplicate saveTasks() call that was causing task duplication (9x duplicates)
+      const conversionResult = await this.backendClient.convertToTasksWithMetadata(allActionItems, skipAutoScoring);
+      const tasks = conversionResult.tasks;
+      const savedCount = conversionResult.savedCount || tasks.length;
 
-      // Auto-trigger AI scoring for paid users after sync conversion (unless skipped)
+      // Auto-scoring is now handled by the backend automatically for MCP users
       let autoScoringResult: { jobId?: string; scored?: boolean; count?: number; skipped?: boolean } = {};
-      if (skipAutoScoring) {
-        console.log(`[MCP] Skipping auto-scoring as requested by user`);
+      if (conversionResult.autoScoringJobId) {
+        autoScoringResult = {
+          jobId: conversionResult.autoScoringJobId,
+          scored: true,
+          count: conversionResult.autoScoringTaskCount || savedCount
+        };
+        console.log(`[MCP] Backend auto-scoring job: ${conversionResult.autoScoringJobId}`);
+      } else if (skipAutoScoring) {
         autoScoringResult = { skipped: true };
-      } else if (savedCount > 0 && this.backendClient.isPaidUser()) {
-        try {
-          console.log(`[MCP] Auto-triggering AI scoring for paid user after conversion (${savedCount} tasks)`);
-          const allTasks = await this.backendClient.listTasks({});
-          if (allTasks.length > 0) {
-            const { jobId, taskCount } = await this.backendClient.startScoringJobAsync(allTasks);
-            autoScoringResult = { jobId, scored: true, count: taskCount };
-            console.log(`[MCP] Auto-scoring job started: ${jobId} for ${taskCount} tasks`);
-          }
-        } catch (scoringError) {
-          console.error('[MCP] Auto-scoring failed (non-fatal):', scoringError);
-        }
       }
 
       let response = this.formatConversionResult(allActionItems, tasks, savedCount, breakdownMode, autoScoringResult);

@@ -534,6 +534,125 @@ export class AiDDBackendClient extends EventEmitter {
     return allTasks;
   }
 
+  /**
+   * Convert action items to tasks and return full metadata including savedCount and auto-scoring info
+   * FIX: This replaces convertToTasks + saveTasks to prevent duplicate saves
+   * Backend auto-saves tasks via saveTasksToFirestore(), so MCP should NOT call saveTasks() separately
+   */
+  async convertToTasksWithMetadata(
+    actionItems: ActionItem[],
+    skipAutoScoring: boolean = false
+  ): Promise<{
+    tasks: ConvertedTask[];
+    savedCount: number;
+    autoScoringJobId?: string;
+    autoScoringTaskCount?: number;
+  }> {
+    if (!this.deviceToken) await this.authenticate();
+    const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
+    console.log(`[MCP] Converting ${actionItems.length} action items with metadata, skipAutoScoring=${skipAutoScoring}`);
+
+    try {
+      const response = await fetch(`${this.baseUrl}/api/ai/convert-action-items`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.deviceToken}`,
+          'Content-Type': 'application/json',
+          'X-Device-ID': deviceId,
+          'X-MCP-Client': 'true', // Mark as MCP for proper source detection
+        },
+        body: JSON.stringify({
+          deviceId: deviceId,
+          actionItems,
+          conversionMode: 'adhd-optimized',
+          breakdownComplexTasks: true,
+          maxTasksPerItem: 5,
+          skipAutoScoring: skipAutoScoring,
+          source: 'mcp', // Explicitly set source for auto-scoring rules
+        }),
+      });
+
+      if (!response.ok) throw new Error(`Conversion failed: ${response.statusText}`);
+
+      const jobData = await response.json() as { jobId?: string; tasks?: ConvertedTask[] };
+
+      if (jobData.tasks && jobData.tasks.length > 0) {
+        // Immediate result (cached or fast response)
+        return {
+          tasks: jobData.tasks,
+          savedCount: jobData.tasks.length,
+        };
+      }
+
+      if (jobData.jobId) {
+        // Poll for job completion and get full result with metadata
+        const result = await this.pollJobForFullResult(jobData.jobId, deviceId);
+        return result;
+      }
+
+      return { tasks: [], savedCount: 0 };
+    } catch (error) {
+      this.emit('error', { type: 'conversionWithMetadata', error });
+      throw error;
+    }
+  }
+
+  /**
+   * Poll job and return full result with metadata (savedCount, autoScoringJobId, etc.)
+   */
+  private async pollJobForFullResult(
+    jobId: string,
+    deviceId: string
+  ): Promise<{
+    tasks: ConvertedTask[];
+    savedCount: number;
+    autoScoringJobId?: string;
+    autoScoringTaskCount?: number;
+  }> {
+    const MAX_POLLS = 60;
+    const POLL_INTERVAL_MS = 2000;
+    let lastStatus = '';
+
+    for (let i = 0; i < MAX_POLLS; i++) {
+      try {
+        const statusResponse = await fetch(`${this.baseUrl}/api/ai/job/${jobId}`, {
+          headers: {
+            'Authorization': `Bearer ${this.deviceToken}`,
+            'X-Device-ID': deviceId,
+          },
+        });
+
+        if (!statusResponse.ok) {
+          throw new Error(`Job status check failed: ${statusResponse.statusText}`);
+        }
+
+        const status = await statusResponse.json() as any;
+        lastStatus = status.status;
+
+        if (status.status === 'completed' && status.result) {
+          const tasks = this.parseConversionResult(status.result) || [];
+          return {
+            tasks,
+            savedCount: status.result.savedCount || (status.result.autoSaved ? tasks.length : 0),
+            autoScoringJobId: status.result.autoScoringJobId,
+            autoScoringTaskCount: status.result.autoScoringTaskCount,
+          };
+        }
+
+        if (status.status === 'failed') {
+          throw new Error(status.error || 'Job failed');
+        }
+
+        await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+      } catch (error) {
+        if (i === MAX_POLLS - 1) throw error;
+        await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+      }
+    }
+
+    throw new Error(`Job ${jobId} timed out after ${MAX_POLLS * POLL_INTERVAL_MS / 1000} seconds. Last status: ${lastStatus}`);
+  }
+
   private async convertBatch(
     actionItems: ActionItem[],
     onProgress?: (progress: number, message: string) => void
