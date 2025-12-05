@@ -1505,11 +1505,22 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
         if (job.status === 'processing') {
           response += `\n**💡 Next Steps:**\n• Wait for the job to complete\n• Check again in a minute using \`check_ai_jobs\` with this job ID`;
         } else if (job.status === 'completed') {
+          // Show auto-scoring info for conversion jobs
+          if (job.type === 'convert_action_items' && job.result) {
+            const result = job.result as any;
+            if (result.autoScoringJobId) {
+              response += `\n\n🎯 **Auto AI Scoring Triggered**\n• Job ID: \`${result.autoScoringJobId}\`\n• Scoring ${result.autoScoringTaskCount || 'your'} tasks in background`;
+            }
+            if (result.savedCount) {
+              response += `\n• ${result.savedCount} tasks saved to your account`;
+            }
+          }
+
           const nextStep = job.type === 'score_tasks' ? 'Use `list_tasks` to see your scored tasks' :
                            job.type === 'convert_action_items' ? 'Use `list_tasks` to see your converted tasks' :
                            job.type === 'extract_action_items' ? 'Use `list_action_items` to see extracted items' : '';
           if (nextStep) {
-            response += `\n**💡 Next Steps:**\n• ${nextStep}`;
+            response += `\n\n**💡 Next Steps:**\n• ${nextStep}`;
           }
         }
 
