@@ -919,19 +919,27 @@ export class AiDDMCPServer {
 
       const actionItems = await this.backendClient.extractActionItems(notesToProcess);
       let savedCount = 0;
+      let savedActionItems: any[] = [];
       if (actionItems.length > 0) {
         try {
           const saveResult = await this.backendClient.saveActionItems(actionItems);
           savedCount = saveResult.count;
+          savedActionItems = saveResult.actionItems || [];
         } catch (saveError) {
           console.error('[MCP] Failed to save extracted action items:', saveError);
         }
       }
 
-      // Collect all action item IDs for potential follow-up operations (like convert_to_tasks)
-      const actionItemIds = actionItems.map((item: any) => item.id).filter(Boolean);
+      // Collect saved action item IDs (with actual Firestore IDs) for follow-up operations (like convert_to_tasks)
+      // Fall back to extracted IDs only if save failed
+      const actionItemIds = savedActionItems.length > 0
+        ? savedActionItems.map((item: any) => item.id).filter(Boolean)
+        : actionItems.map((item: any) => item.id).filter(Boolean);
 
-      let response = `🔍 **Action Items Extracted**\n\n**Summary:**\n• Source: ${source === 'notes' ? `${notesToProcess.length} notes` : 'provided text'}\n${skippedCount > 0 ? `• Skipped: ${skippedCount} notes (already extracted)` : ''}\n• Extraction mode: ${extractionMode}\n• Action items found: ${actionItems.length}\n• Action items saved: ${savedCount}\n\n**Extracted Action Items:**\n${actionItems.slice(0, 10).map((item: any, i: number) => `${i + 1}. **${item.title}**\n   • ID: ${item.id}\n   • Priority: ${item.priority}\n   • Category: ${item.category}\n   • Confidence: ${(item.confidence * 100).toFixed(0)}%\n   ${item.dueDate ? `• Due: ${item.dueDate}` : ''}\n   ${item.tags && item.tags.length > 0 ? `• Tags: ${item.tags.join(', ')}` : ''}`).join('\n')}\n${actionItems.length > 10 ? `\n... and ${actionItems.length - 10} more items` : ''}\n\n✅ ${savedCount} action items have been saved to your AiDD account.\n\n**Action Item IDs (for convert_to_tasks):**\n${JSON.stringify(actionItemIds)}`;
+      // Use saved action items for display if available (they have the correct Firestore IDs)
+      const displayItems = savedActionItems.length > 0 ? savedActionItems : actionItems;
+
+      let response = `🔍 **Action Items Extracted**\n\n**Summary:**\n• Source: ${source === 'notes' ? `${notesToProcess.length} notes` : 'provided text'}\n${skippedCount > 0 ? `• Skipped: ${skippedCount} notes (already extracted)` : ''}\n• Extraction mode: ${extractionMode}\n• Action items found: ${actionItems.length}\n• Action items saved: ${savedCount}\n\n**Extracted Action Items:**\n${displayItems.slice(0, 10).map((item: any, i: number) => `${i + 1}. **${item.title}**\n   • ID: ${item.id}\n   • Priority: ${item.priority}\n   • Category: ${item.category}\n   • Confidence: ${(item.confidence * 100).toFixed(0)}%\n   ${item.dueDate ? `• Due: ${item.dueDate}` : ''}\n   ${item.tags && item.tags.length > 0 ? `• Tags: ${item.tags.join(', ')}` : ''}`).join('\n')}\n${displayItems.length > 10 ? `\n... and ${displayItems.length - 10} more items` : ''}\n\n✅ ${savedCount} action items have been saved to your AiDD account.\n\n**Action Item IDs (for convert_to_tasks):**\n${JSON.stringify(actionItemIds)}`;
       response = this.appendUsageWarning(response, usageCheck);
       return { content: [{ type: 'text', text: response } as TextContent] };
     } catch (error) {
