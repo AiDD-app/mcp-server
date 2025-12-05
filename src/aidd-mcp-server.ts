@@ -1484,7 +1484,9 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
         response += `**Type:** ${typeLabels[job.type] || job.type}\n`;
         response += `**Status:** ${job.status}\n`;
         if (job.progress !== undefined) {
-          response += `**Progress:** ${Math.round(job.progress)}%\n`;
+          // Backend returns progress in 0-1 format (iOS compatibility), convert to percentage
+          const progressPercent = job.progress <= 1 ? Math.round(job.progress * 100) : Math.round(job.progress);
+          response += `**Progress:** ${progressPercent}%\n`;
         }
         if (job.message) {
           response += `**Message:** ${job.message}\n`;
@@ -1544,7 +1546,9 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
         response += `   • ID: \`${job.id}\`\n`;
         response += `   • Status: ${job.status}`;
         if (job.progress !== undefined && job.status === 'processing') {
-          response += ` (${Math.round(job.progress)}%)`;
+          // Backend returns progress in 0-1 format (iOS compatibility), convert to percentage
+          const progressPercent = job.progress <= 1 ? Math.round(job.progress * 100) : Math.round(job.progress);
+          response += ` (${progressPercent}%)`;
         }
         response += '\n';
         if (job.message) {
