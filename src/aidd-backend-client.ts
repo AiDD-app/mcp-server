@@ -98,6 +98,9 @@ export class AiDDBackendClient extends EventEmitter {
   private authManager: AuthManager;
   private useUserAuth: boolean = false;
   private oauthToken?: string;
+  // CRITICAL: Cached device ID to ensure consistency across all API calls
+  // This prevents the issue where job creation and job status checks use different device IDs
+  private cachedDeviceId?: string;
   private subscriptionTier: 'FREE' | 'PREMIUM' | 'PRO' = 'FREE';
 
   // Helper to wrap fetch with timeout to prevent indefinite hanging
@@ -314,7 +317,7 @@ export class AiDDBackendClient extends EventEmitter {
     let extractedCount = 0;
 
     try {
-      const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
+      const deviceId = this.getConsistentDeviceId();
       onProgress?.(5, 'Creating extraction job...');
       const response = await fetch(`${this.baseUrl}/api/ai/extract-action-items`, {
         method: 'POST',
@@ -549,7 +552,7 @@ export class AiDDBackendClient extends EventEmitter {
     autoScoringTaskCount?: number;
   }> {
     if (!this.deviceToken) await this.authenticate();
-    const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
+    const deviceId = this.getConsistentDeviceId();
     console.log(`[MCP] Converting ${actionItems.length} action items with metadata, skipAutoScoring=${skipAutoScoring}`);
 
     try {
@@ -663,7 +666,7 @@ export class AiDDBackendClient extends EventEmitter {
     let tasksGenerated = 0;
 
     try {
-      const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
+      const deviceId = this.getConsistentDeviceId();
       onProgress?.(5, 'Creating conversion job...');
       const response = await fetch(`${this.baseUrl}/api/ai/convert-action-items`, {
         method: 'POST',
@@ -723,7 +726,7 @@ export class AiDDBackendClient extends EventEmitter {
 
   async startScoringJobAsync(tasks: ConvertedTask[]): Promise<{ jobId: string; taskCount: number }> {
     if (!this.deviceToken) await this.authenticate();
-    const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
+    const deviceId = this.getConsistentDeviceId();
     const tasksToScore = tasks.map(task => ({
       id: (task as any).id || crypto.randomUUID(),
       title: task.title,
@@ -763,7 +766,7 @@ export class AiDDBackendClient extends EventEmitter {
 
   async startConversionJobAsync(actionItems: ActionItem[], skipAutoScoring: boolean = false): Promise<{ jobId: string; actionItemCount: number }> {
     if (!this.deviceToken) await this.authenticate();
-    const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
+    const deviceId = this.getConsistentDeviceId();
     console.log('[MCP] Starting async conversion for', actionItems.length, 'action items, skipAutoScoring=', skipAutoScoring);
     try {
       const response = await this.fetchWithTimeout(`${this.baseUrl}/api/ai/convert-action-items`, {
@@ -802,7 +805,7 @@ export class AiDDBackendClient extends EventEmitter {
    */
   async startConversionJobAllAsync(skipDeduplication: boolean = false, skipAutoScoring: boolean = false): Promise<{ jobId: string | null; message: string }> {
     if (!this.deviceToken) await this.authenticate();
-    const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
+    const deviceId = this.getConsistentDeviceId();
     console.log(`[MCP] Starting async conversion with convertAll=true, skipDeduplication=${skipDeduplication}, skipAutoScoring=${skipAutoScoring}`);
     try {
       const response = await this.fetchWithTimeout(`${this.baseUrl}/api/ai/convert-action-items`, {
@@ -900,7 +903,7 @@ export class AiDDBackendClient extends EventEmitter {
     let success = false;
 
     try {
-      const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
+      const deviceId = this.getConsistentDeviceId();
       onProgress?.(5, 'Preparing tasks for scoring...');
       const taskIdMap = new Map<string, any>();
       const tasksToScore = tasks.map(task => {
@@ -1066,7 +1069,26 @@ export class AiDDBackendClient extends EventEmitter {
   }
 
   private generateDeviceId(): string {
-    return `claude-mcp-${crypto.randomUUID()}`;
+    // CRITICAL: Cache the device ID to ensure consistency across all API calls
+    // Without caching, each call generates a NEW random UUID, causing:
+    // - Jobs created with one device ID to be invisible when checked with another
+    // - "Stale" job status showing 5% when backend shows 100% completed
+    if (!this.cachedDeviceId) {
+      this.cachedDeviceId = `claude-mcp-${crypto.randomUUID()}`;
+      console.log(`[MCP] Generated and cached device ID: ${this.cachedDeviceId}`);
+    }
+    return this.cachedDeviceId;
+  }
+
+  // CRITICAL: Get a consistent device ID for all API calls
+  // This ensures job creation and job status checks use the SAME device ID
+  private getConsistentDeviceId(): string {
+    // If user is authenticated, use their stable user-based ID
+    if (this.userId) {
+      return `mcp-web-${this.userId}`;
+    }
+    // Otherwise, use the cached random device ID (generated once per session)
+    return this.generateDeviceId();
   }
 
   async refreshAuth(): Promise<boolean> {
@@ -1726,7 +1748,7 @@ export class AiDDBackendClient extends EventEmitter {
     try {
       const headers = await this.getAuthHeaders();
       // CRITICAL: Backend requires X-Device-ID header for job endpoints
-      const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
+      const deviceId = this.getConsistentDeviceId();
       (headers as Record<string, string>)['X-Device-ID'] = deviceId;
 
       const response = await this.fetchWithTimeout(`${this.baseUrl}/api/ai/jobs/${jobId}`, {
@@ -1768,7 +1790,7 @@ export class AiDDBackendClient extends EventEmitter {
     try {
       const headers = await this.getAuthHeaders();
       // CRITICAL: Backend requires X-Device-ID header for job endpoints
-      const deviceId = this.userId ? `mcp-web-${this.userId}` : this.generateDeviceId();
+      const deviceId = this.getConsistentDeviceId();
       (headers as Record<string, string>)['X-Device-ID'] = deviceId;
 
       const params = new URLSearchParams();

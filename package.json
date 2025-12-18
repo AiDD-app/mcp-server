@@ -1,7 +1,7 @@
 {
   "name": "@aidd-app/mcp",
-  "version": "4.3.29",
-  "description": "Official AiDD MCP Web Connector - Comprehensive ADHD-optimized productivity platform with AI-powered task management, action item extraction, and multi-service sync. Accessible from Claude web, mobile, and desktop.",
+  "version": "4.4.0",
+  "description": "Official AiDD MCP Connector for ChatGPT and Claude - ADHD-optimized productivity platform with AI-powered task management, action item extraction, and smart prioritization. Compatible with ChatGPT App Store, Claude web/mobile/desktop.",
   "main": "dist/server.js",
   "type": "module",
   "scripts": {
@@ -14,6 +14,11 @@
   "keywords": [
     "mcp",
     "model-context-protocol",
+    "chatgpt",
+    "chatgpt-app",
+    "chatgpt-app-store",
+    "openai",
+    "openai-apps-sdk",
     "claude",
     "claude-web",
     "claude-mobile",
@@ -24,6 +29,8 @@
     "adhd",
     "ai",
     "oauth",
+    "oauth2",
+    "openid-connect",
     "google-tasks",
     "microsoft-todo",
     "action-items",

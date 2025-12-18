@@ -12,11 +12,21 @@ const BASE_URL = process.env.BASE_URL || 'https://mcp.aidd.app';
 // Middleware
 app.use(cors({
   origin: [
+    // Claude/Anthropic
     'https://claude.ai',
     'https://*.claude.ai',
     'https://*.anthropic.com',
     /^https:\/\/claude\.ai/,
     /^https:\/\/.*\.claude\.ai/,
+    // ChatGPT/OpenAI
+    'https://chat.openai.com',
+    'https://chatgpt.com',
+    'https://*.openai.com',
+    'https://*.chatgpt.com',
+    /^https:\/\/chat\.openai\.com/,
+    /^https:\/\/chatgpt\.com/,
+    /^https:\/\/.*\.openai\.com/,
+    /^https:\/\/.*\.chatgpt\.com/,
   ],
   credentials: true,
 }));
@@ -25,7 +35,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true })); // Support form-encoded OAuth requests
 
 // ============================================================================
-// OAUTH 2.0 DISCOVERY ENDPOINTS (for Claude.ai integration)
+// OAUTH 2.0 DISCOVERY ENDPOINTS (for Claude.ai and ChatGPT integration)
 // ============================================================================
 
 // OAuth 2.0 Authorization Server Metadata
@@ -41,10 +51,73 @@ app.get('/.well-known/oauth-authorization-server', (req, res) => {
     grant_types_supported: ['authorization_code', 'refresh_token'],
     token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic'],
     code_challenge_methods_supported: ['S256'],
-    // Icon/logo fields for Claude connector display
+    // Icon/logo fields for connector display
     logo_uri: `${BASE_URL}/icon.png`,
     service_documentation: `${BASE_URL}`,
   });
+});
+
+// OpenID Connect Discovery (for ChatGPT App Store)
+// https://openid.net/specs/openid-connect-discovery-1_0.html
+app.get('/.well-known/openid-configuration', (req, res) => {
+  res.json({
+    issuer: BASE_URL,
+    authorization_endpoint: `${BASE_URL}/oauth/authorize`,
+    token_endpoint: `${BASE_URL}/oauth/token`,
+    userinfo_endpoint: `${BASE_URL}/oauth/userinfo`,
+    registration_endpoint: `${BASE_URL}/register`,
+    jwks_uri: `${BASE_URL}/.well-known/jwks.json`,
+    scopes_supported: ['openid', 'profile', 'email', 'tasks', 'notes', 'action_items'],
+    response_types_supported: ['code'],
+    response_modes_supported: ['query'],
+    grant_types_supported: ['authorization_code', 'refresh_token'],
+    subject_types_supported: ['public'],
+    id_token_signing_alg_values_supported: ['RS256'],
+    token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic'],
+    code_challenge_methods_supported: ['S256', 'plain'],
+    claims_supported: ['sub', 'name', 'email', 'email_verified'],
+  });
+});
+
+// JWKS endpoint (placeholder - actual JWT signing would need real keys)
+app.get('/.well-known/jwks.json', (req, res) => {
+  res.json({
+    keys: []  // In production, this would contain the public keys used for JWT signing
+  });
+});
+
+// UserInfo endpoint for OpenID Connect
+app.get('/oauth/userinfo', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+
+  const token = authHeader.substring(7);
+  try {
+    // Validate token with backend and get user info
+    const response = await fetch(
+      'https://aidd-backend-prod-739193356129.us-central1.run.app/api/auth/me',
+      {
+        headers: { 'Authorization': `Bearer ${token}` }
+      }
+    );
+
+    if (!response.ok) {
+      return res.status(401).json({ error: 'invalid_token' });
+    }
+
+    const userData = await response.json() as any;
+    res.json({
+      sub: userData.id || userData.userId,
+      name: userData.displayName || userData.name,
+      email: userData.email,
+      email_verified: userData.emailVerified || false,
+    });
+  } catch (error) {
+    console.error('UserInfo error:', error);
+    res.status(500).json({ error: 'server_error' });
+  }
 });
 
 // OAuth 2.0 Protected Resource Metadata
@@ -259,9 +332,9 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     service: 'AiDD MCP Web Connector',
-    version: '4.3.29',
+    version: '4.4.0',
     buildTimestamp: process.env.BUILD_TIMESTAMP || 'unknown',
-    toolCount: 20,
+    toolCount: 21,
     timestamp: new Date().toISOString(),
   });
 });
@@ -307,6 +380,62 @@ app.get('/icon', (req, res) => {
   res.redirect('/icon.png');
 });
 
+// ============================================================================
+// CHATGPT APP STORE METADATA
+// ============================================================================
+
+// App Store Metadata endpoint (for ChatGPT App Store submission)
+app.get('/app-metadata', (req, res) => {
+  res.json({
+    name: 'AiDD',
+    display_name: 'AiDD - ADHD Task Manager',
+    version: '4.4.0',
+    description: 'ADHD-optimized productivity platform with AI-powered task management, action item extraction, and smart prioritization.',
+    long_description: 'AiDD helps people with ADHD manage tasks more effectively by breaking down overwhelming projects into manageable pieces. Features include: AI-powered action item extraction from notes, ADHD-optimized task breakdown with time estimates and energy requirements, smart task prioritization that factors in urgency, importance, and your current energy level, and notes management with full-text search.',
+    icon_url: `${BASE_URL}/icon.png`,
+    logo_url: `${BASE_URL}/icon.png`,
+    categories: ['productivity', 'task-management', 'ai-assistant', 'adhd', 'organization'],
+    author: {
+      name: 'AiDD Team',
+      email: 'support@aidd.app',
+      website: 'https://aidd.app',
+    },
+    legal: {
+      privacy_policy_url: 'https://aidd.app/privacy',
+      terms_of_service_url: 'https://aidd.app/terms',
+      support_url: 'https://aidd.app/support',
+    },
+    pricing: {
+      model: 'freemium',
+      free_tier: 'Limited AI operations (1 scoring/month, 3 extractions/week)',
+      pro_tier: '$4.99/month - Unlimited daily scoring, 200 extractions/week',
+    },
+    authentication: {
+      type: 'oauth2',
+      methods: ['google', 'microsoft', 'apple', 'email'],
+      oauth_discovery: `${BASE_URL}/.well-known/oauth-authorization-server`,
+      openid_discovery: `${BASE_URL}/.well-known/openid-configuration`,
+    },
+    mcp: {
+      endpoint: `${BASE_URL}/mcp`,
+      transport: 'http+sse',
+      protocol_version: '2024-11-05',
+      tool_count: 21,
+    },
+    security: {
+      encryption: 'AES-256 at rest',
+      e2e_encryption: 'Optional end-to-end encryption available',
+      compliance: ['GDPR', 'CCPA', 'SOC2'],
+      data_policy: 'User data is never used for AI training or sold to third parties',
+    },
+    platforms: ['chatgpt', 'claude', 'web', 'ios'],
+  });
+});
+
+// ============================================================================
+// STANDARD ENDPOINTS
+// ============================================================================
+
 // Root endpoint - HEAD support for protocol discovery
 app.head('/', (req, res) => {
   res.setHeader('X-MCP-Version', '2024-11-05');
@@ -320,18 +449,22 @@ app.get('/', (req, res) => {
   res.setHeader('X-MCP-Transport', 'sse');
   res.json({
     name: 'AiDD MCP Web Connector',
-    version: '4.3.29',
+    version: '4.4.0',
     description: 'ADHD-optimized productivity platform with AI-powered task management',
     icon: `${BASE_URL}/icon.png`,
+    platforms: ['chatgpt', 'claude', 'web', 'ios'],
     endpoints: {
       health: '/health',
       mcp: '/mcp (POST with SSE)',
       icon: '/icon.png',
+      metadata: '/app-metadata',
       oauth: {
         discovery: '/.well-known/oauth-authorization-server',
+        openid: '/.well-known/openid-configuration',
         register: '/register (POST)',
         authorize: '/oauth/authorize',
         token: '/oauth/token (POST)',
+        userinfo: '/oauth/userinfo',
       },
     },
     capabilities: [
@@ -341,6 +474,10 @@ app.get('/', (req, res) => {
       'AI-Powered Task Prioritization',
       'Multi-Service Sync',
     ],
+    legal: {
+      privacy_policy: 'https://aidd.app/privacy',
+      terms_of_service: 'https://aidd.app/terms',
+    },
   });
 });
 
@@ -357,7 +494,7 @@ app.get('/mcp', (req, res) => {
   res.setHeader('X-MCP-Transport', 'sse');
   res.json({
     name: 'AiDD',
-    version: '4.3.29',
+    version: '4.4.0',
     protocol: 'mcp',
     protocolVersion: '2024-11-05',
     transport: 'sse',
