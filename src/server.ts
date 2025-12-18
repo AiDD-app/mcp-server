@@ -86,6 +86,11 @@ app.get('/.well-known/jwks.json', (req, res) => {
   });
 });
 
+// OpenAI/ChatGPT domain verification
+app.get('/.well-known/openai-apps-challenge', (req, res) => {
+  res.type('text/plain').send('IbNVZb4u87p8B3JwlKb6S1OiRYNBSXIEspE2p88Wcyk');
+});
+
 // UserInfo endpoint for OpenID Connect
 app.get('/oauth/userinfo', async (req, res) => {
   const authHeader = req.headers.authorization;
