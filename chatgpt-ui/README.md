@@ -2,21 +2,47 @@
 
 Rich interactive widgets for AiDD task management in ChatGPT Apps.
 
-## Production URL
-
-**Hosted UI**: https://aidd-backend-prod-739193356129.us-central1.run.app/chatgpt-ui/
-
-This is the URL ChatGPT loads in an iframe when rendering AiDD widgets.
-
 ## Architecture
 
+The UI is served as MCP resources with `text/html+skybridge` MIME type, which ChatGPT loads in a sandboxed iframe:
+
 ```
-ChatGPT App (iframe)
-    └── Loads UI from: /chatgpt-ui/
-            └── Calls MCP tools via window.openai.callTool()
-                    └── Routes to: https://mcp.aidd.app (MCP Server)
-                            └── Connects to: AiDD Backend API
+ChatGPT App
+    └── Connects to MCP Server: https://mcp.aidd.app
+            ├── Discovers tools (list_tasks, score_tasks, etc.)
+            │   └── Each tool has _meta.ui_template linking to widget
+            └── Discovers resources
+                ├── aidd://notes (JSON data)
+                ├── aidd://tasks (JSON data)
+                └── aidd://widgets/* (text/html+skybridge)
+                        └── ChatGPT loads in iframe + injects window.openai
 ```
+
+## Widget Resources
+
+| Resource URI | Description |
+|--------------|-------------|
+| `aidd://widgets/app` | Complete app with all widgets |
+| `aidd://widgets/task-dashboard` | Task priority dashboard |
+| `aidd://widgets/action-items` | Action item extraction preview |
+| `aidd://widgets/energy-selector` | Energy-based task selector |
+| `aidd://widgets/quick-capture` | Quick task capture form |
+| `aidd://widgets/dependencies` | Dependency graph view |
+| `aidd://widgets/focus-mode` | Focus mode timer |
+| `aidd://widgets/ai-scoring` | AI scoring results |
+
+## Tool-to-Widget Mapping
+
+Tools automatically link to their UI widgets via `_meta.ui_template`:
+
+| Tool | Widget |
+|------|--------|
+| `list_tasks` | `aidd://widgets/task-dashboard` |
+| `score_tasks` | `aidd://widgets/ai-scoring` |
+| `extract_action_items` | `aidd://widgets/action-items` |
+| `convert_to_tasks` | `aidd://widgets/action-items` |
+| `create_task` | `aidd://widgets/quick-capture` |
+| `check_ai_jobs` | `aidd://widgets/ai-scoring` |
 
 ## Components
 
@@ -50,17 +76,43 @@ npm install
 # Start dev server (localhost:5173)
 npm run dev
 
-# Build for production
+# Build for standard deployment (separate hosting)
 npm run build
+
+# Build for MCP resources (self-contained HTML)
+npm run build:mcp
 ```
 
-## Deployment
+## Deployment Options
 
-The UI is deployed as part of the GCP backend:
+### Option 1: MCP Resources (Recommended for ChatGPT App Store)
+
+The UI is bundled as self-contained HTML and served directly from the MCP server:
+
+```bash
+# 1. Build MCP resources
+cd aidd-mcp-web-connector/chatgpt-ui
+npm run build:mcp
+
+# This generates:
+# - dist-mcp/index.html (self-contained HTML with inlined CSS/JS)
+# - ../src/chatgpt-ui-resources.ts (TypeScript constants for MCP server)
+
+# 2. Build and deploy MCP server
+cd ..
+npm run build
+gcloud run deploy aidd-mcp-web-connector --image gcr.io/PROJECT/aidd-mcp-web-connector
+```
+
+ChatGPT fetches UI directly from MCP server via:
+- `GET /mcp` → resource `aidd://widgets/app` → returns HTML with `text/html+skybridge`
+
+### Option 2: Backend Static Hosting (Development/Testing)
+
+For development and testing, the UI can also be hosted from the backend:
 
 ```bash
 # 1. Build the UI
-cd aidd-mcp-web-connector/chatgpt-ui
 npm run build
 
 # 2. Copy to backend public folder
@@ -71,15 +123,15 @@ cd ../../gcp-backend
 ./deploy-production.sh
 ```
 
-The UI will be available at:
+UI available at:
 - `https://aidd-backend-prod-739193356129.us-central1.run.app/chatgpt-ui/`
 
 ## ChatGPT Developer Mode Testing
 
 1. Enable **Developer Mode** in ChatGPT: Settings → Apps & Connectors → Advanced settings
 2. Create a new connector with MCP server URL: `https://mcp.aidd.app`
-3. Configure UI widget URL: `https://aidd-backend-prod-739193356129.us-central1.run.app/chatgpt-ui/`
-4. Start a chat and invoke AiDD tools
+3. Start a chat and invoke AiDD tools
+4. ChatGPT automatically discovers and loads UI widgets from MCP resources
 
 ## Hooks
 

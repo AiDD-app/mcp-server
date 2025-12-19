@@ -21,6 +21,7 @@ import {
 } from './subscription-manager.js';
 import { E2EEncryptionManager, getE2EManager } from './e2e-encryption-manager.js';
 import { getAnalytics } from './analytics/ga4.js';
+import { CHATGPT_UI_WIDGETS_HTML, WIDGET_RESOURCES, TOOL_WIDGET_MAP } from './chatgpt-ui-resources.js';
 
 export class AiDDMCPServer {
   private server: Server;
@@ -411,13 +412,13 @@ export class AiDDMCPServer {
   }
 
   private getTools(): Tool[] {
-    return [
+    const tools: Tool[] = [
       {
         name: 'list_notes',
         description: 'List notes from your AiDD account with optional sorting and pagination',
         annotations: { readOnlyHint: true },
         inputSchema: {
-          type: 'object',
+          type: 'object' as const,
           properties: {
             sortBy: { type: 'string', enum: ['createdAt', 'updatedAt', 'title'], description: 'Field to sort by (default: updatedAt)' },
             order: { type: 'string', enum: ['asc', 'desc'], description: 'Sort order (default: desc)' },
@@ -704,14 +705,44 @@ export class AiDDMCPServer {
         },
       },
     ];
+    return tools.map(tool => this.addToolUIMeta(tool));
+  }
+
+  /**
+   * Add UI template metadata to tools for ChatGPT Apps SDK integration.
+   * Links tools to their preferred UI widgets for rendering results.
+   */
+  private addToolUIMeta(tool: Tool): Tool {
+    const uiTemplate = TOOL_WIDGET_MAP[tool.name];
+    if (uiTemplate) {
+      return {
+        ...tool,
+        // ChatGPT Apps SDK uses _meta to link tools to UI templates
+        _meta: {
+          ui_template: uiTemplate,
+        },
+      } as Tool;
+    }
+    return tool;
   }
 
   private getResources(): Resource[] {
-    return [
+    // Data resources (JSON)
+    const dataResources: Resource[] = [
       { uri: 'aidd://notes', name: 'Notes', description: 'All notes from your AiDD account', mimeType: 'application/json' },
       { uri: 'aidd://action-items', name: 'Action Items', description: 'All action items from your AiDD account', mimeType: 'application/json' },
       { uri: 'aidd://tasks', name: 'Tasks', description: 'All ADHD-optimized tasks from your AiDD account', mimeType: 'application/json' },
     ];
+
+    // ChatGPT UI widget resources (HTML+skybridge for iframe rendering)
+    const widgetResources: Resource[] = WIDGET_RESOURCES.map(w => ({
+      uri: w.uri,
+      name: w.name,
+      description: w.description,
+      mimeType: w.mimeType,
+    }));
+
+    return [...dataResources, ...widgetResources];
   }
 
   private async handleListNotes(args: any) {
@@ -2488,6 +2519,7 @@ list_tasks:
   }
 
   private async handleResourceRead(uri: string) {
+    // Data resources
     switch (uri) {
       case 'aidd://notes':
         const notes = await this.backendClient.listNotes({});
@@ -2498,9 +2530,23 @@ list_tasks:
       case 'aidd://tasks':
         const tasks = await this.backendClient.listTasks({});
         return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(tasks, null, 2) }] };
-      default:
-        throw new McpError(ErrorCode.InvalidRequest, `Unknown resource: ${uri}`);
     }
+
+    // ChatGPT UI widget resources (all widgets use the same HTML bundle)
+    if (uri.startsWith('aidd://widgets/')) {
+      const widgetResource = WIDGET_RESOURCES.find(w => w.uri === uri);
+      if (widgetResource) {
+        return {
+          contents: [{
+            uri,
+            mimeType: 'text/html+skybridge',
+            text: CHATGPT_UI_WIDGETS_HTML,
+          }]
+        };
+      }
+    }
+
+    throw new McpError(ErrorCode.InvalidRequest, `Unknown resource: ${uri}`);
   }
 
   async connect(transport: Transport) {

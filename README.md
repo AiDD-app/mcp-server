@@ -3,7 +3,7 @@
 **Official AiDD MCP Web Connector** - ADHD-optimized productivity platform accessible from Claude web, mobile, and desktop.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-4.3.22-blue.svg)](https://github.com/aidd-app/mcp-server)
+[![Version](https://img.shields.io/badge/version-4.4.0-blue.svg)](https://github.com/aidd-app/mcp-server)
 
 ## 🌐 Universal Access
 
@@ -11,6 +11,7 @@ Works everywhere Claude works:
 - ✅ **Claude.ai** (desktop browsers)
 - ✅ **Claude mobile apps** (iOS/Android)
 - ✅ **Claude Desktop** (all platforms)
+- ✅ **ChatGPT Apps** (with rich UI widgets)
 
 Simply connect via URL - no local installation required.
 
@@ -54,6 +55,22 @@ For **paid users (PRO/PREMIUM)**, AI scoring is automatically triggered after ta
 - **Web/iOS**: Auto-scores when converting more than 1 action item
 
 This means your tasks are immediately prioritized without needing a separate scoring step!
+
+### 🖼️ ChatGPT UI Widgets (New in v4.4.0)
+
+Rich interactive widgets for ChatGPT Apps integration:
+
+| Widget | Description |
+|--------|-------------|
+| **Task Dashboard** | Visual task prioritization with AI scores |
+| **Action Items** | AI-extracted items with confidence scores |
+| **Energy Selector** | Task selection by energy level |
+| **Quick Capture** | Fast task creation form |
+| **Dependency Graph** | Visual task dependencies |
+| **Focus Mode** | Pomodoro-style timer |
+| **AI Scoring** | Score distribution and insights |
+
+Widgets are served as MCP resources with `text/html+skybridge` MIME type for native ChatGPT integration.
 
 ### 🔐 Authentication
 - Browser-based OAuth (Google, Microsoft, Apple)
@@ -368,6 +385,27 @@ presentation while your energy is highest.
 └─────────────────┘
 ```
 
+### ChatGPT Apps Integration
+
+```
+ChatGPT App
+    └── Connects to MCP Server: https://mcp.aidd.app
+            ├── Discovers tools (list_tasks, score_tasks, etc.)
+            │   └── Each tool has _meta.ui_template linking to widget
+            └── Discovers resources
+                ├── aidd://notes (JSON data)
+                ├── aidd://tasks (JSON data)
+                └── aidd://widgets/* (text/html+skybridge)
+                        └── ChatGPT loads in iframe + injects window.openai
+```
+
+| Widget Resource | Tool Mapping |
+|-----------------|--------------|
+| `aidd://widgets/task-dashboard` | `list_tasks` |
+| `aidd://widgets/action-items` | `extract_action_items`, `convert_to_tasks` |
+| `aidd://widgets/ai-scoring` | `score_tasks`, `check_ai_jobs` |
+| `aidd://widgets/quick-capture` | `create_task` |
+
 ### Tech Stack
 - **Runtime**: Node.js 20
 - **Framework**: Express.js
@@ -559,6 +597,25 @@ MIT © AiDD Team
 ---
 
 ## Changelog
+
+### v4.4.0 (2025-12-19)
+
+- 🖼️ **New**: ChatGPT UI Widgets - Rich interactive components for ChatGPT Apps
+  - Task Priority Dashboard with AI scores
+  - Action Item Extraction Preview with confidence
+  - Energy-Based Task Selector
+  - Quick Capture Form
+  - Dependency Graph visualization
+  - Focus Mode timer
+  - AI Scoring Results Card
+- 📦 **New**: MCP Resources for UI widgets (`aidd://widgets/*`)
+  - Self-contained HTML with inlined CSS/JS
+  - `text/html+skybridge` MIME type for ChatGPT integration
+  - Tool-to-widget linking via `_meta.ui_template`
+- 🔧 **Architecture**: UI bundled directly into MCP server
+  - No separate hosting required
+  - Automatic discovery by ChatGPT Apps
+- 📊 **Total tools**: 18 (unchanged) + 8 widget resources
 
 ### v4.3.22 (2025-12-02)
 

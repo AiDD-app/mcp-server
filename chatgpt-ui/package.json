@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:mcp": "tsc && vite build --config vite.config.mcp.ts && node scripts/generate-mcp-resources.js",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx"
   },
@@ -36,6 +37,7 @@
     "postcss": "^8.4.33",
     "tailwindcss": "^4.0.10",
     "typescript": "^5.3.3",
-    "vite": "^5.0.12"
+    "vite": "^5.0.12",
+    "vite-plugin-singlefile": "^2.3.0"
   }
 }
