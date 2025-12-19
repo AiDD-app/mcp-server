@@ -37,18 +37,30 @@ export function AIScoringResultsCard({
   onTaskSelect,
   showRecommendations = true,
 }: AIScoringResultsCardProps) {
-  const { theme } = useOpenAI();
-  const { tasks, loading: tasksLoading, fetchTasks } = useTasks();
-  const { jobs, loading: jobsLoading, fetchJobs, scoreTasks } = useAIJobs();
+  const { theme, toolOutput } = useOpenAI();
+  const { tasks: fetchedTasks, loading: tasksLoading, fetchTasks } = useTasks();
+  const { jobs: fetchedJobs, loading: jobsLoading, fetchJobs, scoreTasks } = useAIJobs();
   const [isScoring, setIsScoring] = useState(false);
   const [lastScoringJob, setLastScoringJob] = useState<AIJob | null>(null);
 
   const isDark = theme === 'dark';
 
+  // Use pre-populated toolOutput.tasks if available (from tool call that triggered this widget)
+  // Otherwise fall back to fetched tasks
+  const preloadedTasks = (toolOutput as { tasks?: Task[]; jobs?: AIJob[] })?.tasks;
+  const preloadedJobs = (toolOutput as { tasks?: Task[]; jobs?: AIJob[] })?.jobs;
+  const tasks = preloadedTasks || fetchedTasks;
+  const jobs = preloadedJobs || fetchedJobs;
+
   useEffect(() => {
-    fetchTasks('score', 100);
-    fetchJobs(true);
-  }, [fetchTasks, fetchJobs]);
+    // Only fetch if no pre-populated data from toolOutput
+    if (!preloadedTasks || preloadedTasks.length === 0) {
+      fetchTasks('score', 100);
+    }
+    if (!preloadedJobs || preloadedJobs.length === 0) {
+      fetchJobs(true);
+    }
+  }, [fetchTasks, fetchJobs, preloadedTasks, preloadedJobs]);
 
   // Find the most recent scoring job
   useEffect(() => {

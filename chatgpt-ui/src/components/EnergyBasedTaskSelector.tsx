@@ -73,15 +73,23 @@ export function EnergyBasedTaskSelector({
   onTaskSelect,
   onStartFocusMode,
 }: EnergyBasedTaskSelectorProps) {
-  const { theme } = useOpenAI();
-  const { tasks, loading, fetchTasks, completeTask } = useTasks();
+  const { theme, toolOutput } = useOpenAI();
+  const { tasks: fetchedTasks, loading, fetchTasks, completeTask } = useTasks();
   const [selectedEnergy, setSelectedEnergy] = useState<EnergyLevel | null>(null);
 
   const isDark = theme === 'dark';
 
+  // Use pre-populated toolOutput.tasks if available (from tool call that triggered this widget)
+  // Otherwise fall back to fetched tasks
+  const preloadedTasks = (toolOutput as { tasks?: Task[] })?.tasks;
+  const tasks = preloadedTasks || fetchedTasks;
+
   useEffect(() => {
-    fetchTasks('score', 50);
-  }, [fetchTasks]);
+    // Only fetch if no pre-populated data from toolOutput
+    if (!preloadedTasks || preloadedTasks.length === 0) {
+      fetchTasks('score', 50);
+    }
+  }, [fetchTasks, preloadedTasks]);
 
   // Filter tasks by energy level
   const matchingTasks = useMemo(() => {

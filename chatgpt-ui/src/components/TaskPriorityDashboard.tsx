@@ -39,14 +39,22 @@ export function TaskPriorityDashboard({
   maxTasks = 10,
   showCompleted = false,
 }: TaskPriorityDashboardProps) {
-  const { theme, requestFullscreen } = useOpenAI();
-  const { tasks, loading, error, fetchTasks, completeTask } = useTasks();
+  const { theme, requestFullscreen, toolOutput } = useOpenAI();
+  const { tasks: fetchedTasks, loading, error, fetchTasks, completeTask } = useTasks();
   const { scoreTasks, jobs } = useAIJobs();
   const [isScoring, setIsScoring] = useState(false);
 
+  // Use pre-populated toolOutput.tasks if available (from tool call that triggered this widget)
+  // Otherwise fall back to fetched tasks
+  const preloadedTasks = (toolOutput as { tasks?: Task[] })?.tasks;
+  const tasks = preloadedTasks || fetchedTasks;
+
   useEffect(() => {
-    fetchTasks('score', maxTasks);
-  }, [fetchTasks, maxTasks]);
+    // Only fetch if no pre-populated data from toolOutput
+    if (!preloadedTasks || preloadedTasks.length === 0) {
+      fetchTasks('score', maxTasks);
+    }
+  }, [fetchTasks, maxTasks, preloadedTasks]);
 
   const filteredTasks = showCompleted
     ? tasks

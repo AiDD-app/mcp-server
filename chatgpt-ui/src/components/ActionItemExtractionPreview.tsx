@@ -41,14 +41,19 @@ export function ActionItemExtractionPreview({
   onConvertToTasks,
   onDismiss,
 }: ActionItemExtractionPreviewProps) {
-  const { theme, callTool } = useOpenAI();
-  const { actionItems, loading, fetchActionItems, convertToTasks } = useActionItems();
+  const { theme, callTool, toolOutput } = useOpenAI();
+  const { actionItems: fetchedActionItems, loading, fetchActionItems, convertToTasks } = useActionItems();
   const { jobs, fetchJobs } = useAIJobs();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
   const [isConverting, setIsConverting] = useState(false);
 
   const isDark = theme === 'dark';
+
+  // Use pre-populated toolOutput.actionItems if available (from tool call that triggered this widget)
+  // Otherwise fall back to fetched action items
+  const preloadedItems = (toolOutput as { actionItems?: ActionItem[] })?.actionItems;
+  const actionItems = preloadedItems || fetchedActionItems;
 
   // Get extraction jobs in progress
   const extractionJobs = jobs.filter(

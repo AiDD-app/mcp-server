@@ -5,7 +5,7 @@
  * Shows which tasks block others and critical path highlighting.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useTasks, useOpenAI } from '../hooks/useOpenAI';
 import type { Task } from '../types/openai';
 import { cn } from '../utils/cn';
@@ -44,12 +44,24 @@ export function DependencyGraph({
   onTaskSelect,
   maxDepth = 5,
 }: DependencyGraphProps) {
-  const { theme, requestFullscreen } = useOpenAI();
-  const { tasks, loading, fetchTasks } = useTasks();
+  const { theme, requestFullscreen, toolOutput } = useOpenAI();
+  const { tasks: fetchedTasks, loading, fetchTasks } = useTasks();
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'tree' | 'list'>('tree');
 
   const isDark = theme === 'dark';
+
+  // Use pre-populated toolOutput.tasks if available (from tool call that triggered this widget)
+  // Otherwise fall back to fetched tasks
+  const preloadedTasks = (toolOutput as { tasks?: Task[] })?.tasks;
+  const tasks = preloadedTasks || fetchedTasks;
+
+  useEffect(() => {
+    // Only fetch if no pre-populated data from toolOutput
+    if (!preloadedTasks || preloadedTasks.length === 0) {
+      fetchTasks('score', 100);
+    }
+  }, [fetchTasks, preloadedTasks]);
 
   // Build dependency graph
   const graph = useMemo(() => {
