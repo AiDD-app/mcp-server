@@ -289,7 +289,7 @@ class AiDDOAuthServer {
                         ${data.user?.subscription || 'FREE'}
                       </span>
                     </p>
-                    <p>You can now close this window and return to Claude Desktop.</p>
+                    <p>You can now close this window and return to your app.</p>
                     <p style="margin-top: 30px; color: #999; font-size: 14px;">
                       The AiDD MCP is now connected and ready to use.
                     </p>

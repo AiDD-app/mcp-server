@@ -378,7 +378,7 @@ class AiDDBrowserAuthServer {
                         ${this.authState.subscription || 'FREE'}
                       </span>
                     </p>
-                    <p>You can now close this window and return to Claude Desktop.</p>
+                    <p>You can now close this window and return to your app.</p>
                     <p style="margin-top: 30px; color: #999; font-size: 14px;">
                       This window will close automatically in 3 seconds...
                     </p>
@@ -516,7 +516,7 @@ class AiDDBrowserAuthServer {
                   <h1>SSO Authentication Successful!</h1>
                   <p>Email: ${email || 'SSO User'}</p>
                   <p>Subscription: ${subscription || 'FREE'}</p>
-                  <p>You can now close this window and return to Claude Desktop.</p>
+                  <p>You can now close this window and return to your app.</p>
                   <p style="margin-top: 30px; color: #999; font-size: 14px;">
                     This window will close automatically in 3 seconds...
                   </p>
@@ -691,7 +691,7 @@ class AiDDBrowserAuthServer {
                         ${subscription}
                       </span>
                     </p>
-                    <p>You can now close this window and return to Claude Desktop.</p>
+                    <p>You can now close this window and return to your app.</p>
                     <p style="margin-top: 30px; color: #999; font-size: 14px;">
                       This window will close automatically in 3 seconds...
                     </p>

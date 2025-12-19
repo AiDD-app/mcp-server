@@ -38,7 +38,7 @@ COPY favicon-32.png ./
 # Set environment
 ENV NODE_ENV=production
 ENV PORT=8080
-ENV BUILD_TIMESTAMP=20251219-chatgpt-ui-widgets-v4.4.0
+ENV BUILD_TIMESTAMP=20251219-chatgpt-ui-widgets-v4.4.2-generic-redirect
 
 # Expose port
 EXPOSE 8080

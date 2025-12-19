@@ -972,7 +972,20 @@ export class AiDDMCPServer {
 
       let response = `🔍 **Action Items Extracted**\n\n**Summary:**\n• Source: ${source === 'notes' ? `${notesToProcess.length} notes` : 'provided text'}\n${skippedCount > 0 ? `• Skipped: ${skippedCount} notes (already extracted)` : ''}\n• Extraction mode: ${extractionMode}\n• Action items found: ${actionItems.length}\n• Action items saved: ${savedCount}\n\n**Extracted Action Items:**\n${displayItems.slice(0, 10).map((item: any, i: number) => `${i + 1}. **${item.title}**\n   • ID: ${item.id}\n   • Priority: ${item.priority}\n   • Category: ${item.category}\n   • Confidence: ${(item.confidence * 100).toFixed(0)}%\n   ${item.dueDate ? `• Due: ${item.dueDate}` : ''}\n   ${item.tags && item.tags.length > 0 ? `• Tags: ${item.tags.join(', ')}` : ''}`).join('\n')}\n${displayItems.length > 10 ? `\n... and ${displayItems.length - 10} more items` : ''}\n\n✅ ${savedCount} action items have been saved to your AiDD account.\n\n**Action Item IDs (for convert_to_tasks):**\n${JSON.stringify(actionItemIds)}`;
       response = this.appendUsageWarning(response, usageCheck);
-      return { content: [{ type: 'text', text: response } as TextContent] };
+      return {
+        content: [{ type: 'text', text: response } as TextContent],
+        structuredContent: {
+          actionItems: displayItems,
+          totalCount: displayItems.length,
+          savedCount,
+          skippedCount,
+          extractionMode,
+          actionItemIds,
+        },
+        _meta: {
+          ui_template: 'aidd://widgets/action-items',
+        },
+      };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error extracting action items: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
     }
@@ -1251,7 +1264,20 @@ export class AiDDMCPServer {
       }).join('\n\n');
 
       const response = `✅ **Tasks Retrieved**\n\n**Total tasks:** ${tasks.length}\n\n${taskDetails}\n${tasks.length > 10 ? `\n... and ${tasks.length - 10} more tasks` : ''}`;
-      return { content: [{ type: 'text', text: response } as TextContent] };
+
+      // Return both text content and structured content for ChatGPT UI widgets
+      return {
+        content: [{ type: 'text', text: response } as TextContent],
+        // Structured content for widget rendering (ChatGPT Apps)
+        structuredContent: {
+          tasks: tasks,
+          totalCount: tasks.length,
+        },
+        // Point to the widget template for ChatGPT to render
+        _meta: {
+          ui_template: 'aidd://widgets/task-dashboard',
+        },
+      };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error listing tasks: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
     }
@@ -1295,7 +1321,26 @@ export class AiDDMCPServer {
 
       // Use original args for display since we know the plaintext
       const response = `✅ **Task Created**\n\n**Title:** ${title}\n**ID:** ${createdTask.id}\n**Estimated Time:** ${estimatedTime} minutes\n**Energy Required:** ${energyRequired}\n**Task Type:** ${taskType}\n${dueDate ? `**Due Date:** ${dueDate}` : ''}\n${tags && tags.length > 0 ? `**Tags:** ${tags.join(', ')}` : ''}\n${this.e2eEnabled ? '🔐 **E2E Encrypted**' : ''}\n\nThe task has been saved to your AiDD account.`;
-      return { content: [{ type: 'text', text: response } as TextContent] };
+      return {
+        content: [{ type: 'text', text: response } as TextContent],
+        structuredContent: {
+          task: {
+            id: createdTask.id,
+            title,
+            description: description || '',
+            estimatedTime,
+            energyRequired,
+            taskType,
+            dueDate,
+            tags,
+          },
+          status: 'created',
+          e2eEncrypted: this.e2eEnabled,
+        },
+        _meta: {
+          ui_template: 'aidd://widgets/quick-capture',
+        },
+      };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error creating task: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
     }
@@ -1362,7 +1407,19 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
           const willAutoScore = isPaid && !skipAutoScoring;
           let response = `🚀 **AI Conversion Started**\n\nConverting ${actionItemCount} selected action item${actionItemCount > 1 ? 's' : ''} to ADHD-optimized tasks.\n\n**What's happening:**\n• AI is breaking down action items into manageable tasks\n• Tasks are being optimized for ADHD-friendly execution\n• Each action item may generate multiple subtasks${willAutoScore ? '\n• 🎯 **Auto AI Scoring** will run after conversion (Premium/Pro benefit)' : ''}${skipAutoScoring ? '\n• ⏭️ Auto-scoring skipped as requested' : ''}\n\n**Check your results:**\n⏱️ **Check back in ~5 minutes** - use the \`list_tasks\` tool to see your${willAutoScore ? ' scored and' : ''} converted tasks.\n\nJob ID: \`${jobId}\``;
           response = this.appendUsageWarning(response, usageCheck);
-          return { content: [{ type: 'text', text: response.trim() } as TextContent] };
+          return {
+            content: [{ type: 'text', text: response.trim() } as TextContent],
+            structuredContent: {
+              jobId,
+              actionItemCount,
+              status: 'started',
+              type: 'convert_action_items',
+              willAutoScore,
+            },
+            _meta: {
+              ui_template: 'aidd://widgets/action-items',
+            },
+          };
         }
 
         // Synchronous conversion for specific items
@@ -1388,7 +1445,21 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
 
         let response = this.formatConversionResult(actionItems, tasks, savedCount, breakdownMode, autoScoringResult);
         response = this.appendUsageWarning(response, usageCheck);
-        return { content: [{ type: 'text', text: response } as TextContent] };
+        return {
+          content: [{ type: 'text', text: response } as TextContent],
+          structuredContent: {
+            actionItems,
+            tasks,
+            savedCount,
+            breakdownMode,
+            status: 'completed',
+            type: 'convert_action_items',
+            autoScoringJobId: autoScoringResult?.jobId,
+          },
+          _meta: {
+            ui_template: 'aidd://widgets/action-items',
+          },
+        };
       }
 
       // MODE 2: CONVERT ALL - No specific IDs provided (or explicit convertAll=true)
@@ -1408,7 +1479,20 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
         const willAutoScore = isPaid && !skipAutoScoring;
         let response = `🚀 **AI Conversion Started**\n\n${result.message}\n\n**What's happening:**\n• AI is breaking down action items into manageable tasks\n• ${skipDeduplication ? 'Deduplication skipped (faster)' : 'Already-converted items are automatically skipped'}\n• Tasks are optimized for ADHD-friendly execution${willAutoScore ? '\n• 🎯 **Auto AI Scoring** will run after conversion (Premium/Pro benefit)' : ''}${skipAutoScoring ? '\n• ⏭️ Auto-scoring skipped as requested' : ''}\n\n**Check your results:**\n⏱️ **Check back in ~5 minutes** - use the \`list_tasks\` tool to see your${willAutoScore ? ' scored and' : ''} converted tasks.\n\nJob ID: \`${result.jobId}\``;
         response = this.appendUsageWarning(response, usageCheck);
-        return { content: [{ type: 'text', text: response.trim() } as TextContent] };
+        return {
+          content: [{ type: 'text', text: response.trim() } as TextContent],
+          structuredContent: {
+            jobId: result.jobId,
+            message: result.message,
+            status: 'started',
+            type: 'convert_action_items',
+            willAutoScore,
+            convertAll: true,
+          },
+          _meta: {
+            ui_template: 'aidd://widgets/action-items',
+          },
+        };
       }
 
       // SLOW PATH: Synchronous conversion (waitForCompletion=true)
@@ -1441,7 +1525,22 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
 
       let response = this.formatConversionResult(allActionItems, tasks, savedCount, breakdownMode, autoScoringResult);
       response = this.appendUsageWarning(response, usageCheck);
-      return { content: [{ type: 'text', text: response } as TextContent] };
+      return {
+        content: [{ type: 'text', text: response } as TextContent],
+        structuredContent: {
+          actionItems: allActionItems,
+          tasks,
+          savedCount,
+          breakdownMode,
+          status: 'completed',
+          type: 'convert_action_items',
+          convertAll: true,
+          autoScoringJobId: autoScoringResult?.jobId,
+        },
+        _meta: {
+          ui_template: 'aidd://widgets/action-items',
+        },
+      };
 
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
@@ -1477,7 +1576,18 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
         const { jobId, taskCount } = await this.backendClient.startScoringJobAsync(tasks);
         let response = `🚀 **AI Scoring Started**\n\nYour ${taskCount} tasks are being scored in the background using ADHD-optimized AI prioritization.\n\n**What's happening:**\n• AI is analyzing urgency, impact, and relevance for each task\n• Tasks will be ranked by optimal execution order\n• Energy levels and time-of-day are being considered\n\n**Check your results:**\n⏱️ **Check back in ~5 minutes** - use the \`list_tasks\` tool to see your scored and prioritized tasks.\n\nJob ID: \`${jobId}\``;
         response = this.appendUsageWarning(response, usageCheck);
-        return { content: [{ type: 'text', text: response.trim() } as TextContent] };
+        return {
+          content: [{ type: 'text', text: response.trim() } as TextContent],
+          structuredContent: {
+            jobId,
+            taskCount,
+            status: 'started',
+            type: 'score_tasks',
+          },
+          _meta: {
+            ui_template: 'aidd://widgets/ai-scoring',
+          },
+        };
       }
 
       const scoredTasks = await this.backendClient.scoreTasks(tasks);
@@ -1486,7 +1596,19 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
 
       let response = `🎯 **Tasks Scored & Prioritized**\n\n**Summary:**\n• Tasks scored: ${scoredTasks.length}\n• Time optimization: ${actualTimeOfDay}\n• Energy considered: ${considerCurrentEnergy ? 'Yes' : 'No'}\n\n**Top Priority Tasks (Next 2 Hours):**\n${scoredTasks.slice(0, 5).map((task: any, i: number) => `${i + 1}. **${task.title}** (Score: ${task.score}/100)\n   ${task.factors ? `• Urgency: ${task.factors.urgency}/10` : ''}\n   ${task.factors ? `• Importance: ${task.factors.importance}/10` : ''}\n   ${task.factors ? `• Effort: ${task.factors.effort}/10` : ''}\n   ${task.factors ? `• ADHD Match: ${task.factors.adhd_compatibility}/10` : ''}\n   ${task.recommendation ? `📝 ${task.recommendation}` : ''}`).join('\n')}\n\n**Suggested Schedule:**\n🌅 **Morning (High Energy):**\n${scoredTasks.filter((t: any) => t.factors && t.factors.effort >= 7).slice(0, 3).map((t: any) => `  • ${t.title}`).join('\n') || '  No high-energy tasks'}\n\n☀️ **Afternoon (Medium Energy):**\n${scoredTasks.filter((t: any) => t.factors && t.factors.effort >= 4 && t.factors.effort < 7).slice(0, 3).map((t: any) => `  • ${t.title}`).join('\n') || '  No medium-energy tasks'}\n\n🌙 **Evening (Low Energy):**\n${scoredTasks.filter((t: any) => t.factors && t.factors.effort < 4).slice(0, 3).map((t: any) => `  • ${t.title}`).join('\n') || '  No low-energy tasks'}\n\nAll tasks have been scored and saved to your AiDD account.`;
       response = this.appendUsageWarning(response, usageCheck);
-      return { content: [{ type: 'text', text: response } as TextContent] };
+      return {
+        content: [{ type: 'text', text: response } as TextContent],
+        structuredContent: {
+          tasks: scoredTasks,
+          totalCount: scoredTasks.length,
+          timeOfDay: actualTimeOfDay,
+          considerCurrentEnergy,
+          status: 'completed',
+        },
+        _meta: {
+          ui_template: 'aidd://widgets/ai-scoring',
+        },
+      };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error scoring tasks: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
     }
@@ -1555,7 +1677,25 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
           }
         }
 
-        return { content: [{ type: 'text', text: response.trim() } as TextContent] };
+        return {
+          content: [{ type: 'text', text: response.trim() } as TextContent],
+          structuredContent: {
+            job: {
+              id: job.id,
+              type: job.type,
+              status: job.status,
+              progress: job.progress,
+              message: job.message,
+              createdAt: job.createdAt,
+              completedAt: job.completedAt,
+              error: job.error,
+              result: job.result,
+            },
+          },
+          _meta: {
+            ui_template: 'aidd://widgets/ai-scoring',
+          },
+        };
       }
 
       // List all jobs
@@ -1601,7 +1741,24 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
 
       response += `**💡 Tip:** Use \`check_ai_jobs\` with a specific \`jobId\` to get detailed status.`;
 
-      return { content: [{ type: 'text', text: response.trim() } as TextContent] };
+      return {
+        content: [{ type: 'text', text: response.trim() } as TextContent],
+        structuredContent: {
+          jobs: jobs.map((job: any) => ({
+            id: job.id,
+            type: job.type,
+            status: job.status,
+            progress: job.progress,
+            message: job.message,
+            createdAt: job.createdAt,
+          })),
+          totalCount: jobs.length,
+          includeCompleted,
+        },
+        _meta: {
+          ui_template: 'aidd://widgets/ai-scoring',
+        },
+      };
 
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ **Error checking jobs:** ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };

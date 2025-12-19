@@ -71,7 +71,7 @@ export class BrowserOAuthFlow {
                     <p>You're now connected to AiDD.</p>
                     <p><strong>Email:</strong> ${email}</p>
                     <p><strong>Subscription:</strong> ${subscription || 'FREE'}</p>
-                    <p>You can close this window now and return to Claude.</p>
+                    <p>You can close this window now and return to your app.</p>
                   </body>
                 </html>
               `);

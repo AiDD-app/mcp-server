@@ -236,12 +236,12 @@ app.get('/oauth/callback', (req, res) => {
     const stateData = JSON.parse(Buffer.from(state as string, 'base64url').toString());
     const { claude_redirect, claude_state } = stateData;
 
-    // Redirect back to Claude with the authorization code
+    // Redirect back to the MCP client with the authorization code
     const claudeCallbackUrl = new URL(claude_redirect);
     claudeCallbackUrl.searchParams.append('code', code as string);
     claudeCallbackUrl.searchParams.append('state', claude_state);
 
-    console.log('↩️  Redirecting to Claude:', claudeCallbackUrl.toString());
+    console.log('↩️  Redirecting to MCP client:', claudeCallbackUrl.toString());
     res.redirect(claudeCallbackUrl.toString());
   } catch (error) {
     console.error('❌ OAuth callback error:', error);
