@@ -190,7 +190,7 @@ export class AuthManager {
         console.error('');
         console.error('Your session has expired. To continue using AiDD:');
         console.error('  1. Use the "connect" command to sign in again');
-        console.error('  2. Or restart Claude and re-authenticate');
+        console.error('  2. Or restart your MCP client and re-authenticate');
         console.error('='.repeat(60) + '\n');
 
         // Clear expired credentials

@@ -5,17 +5,15 @@
  * selection for conversion to tasks, and real-time extraction progress.
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useActionItems, useAIJobs, useOpenAI } from '../hooks/useOpenAI';
 import type { ActionItem, ExtractionResult } from '../types/openai';
 import { cn } from '../utils/cn';
+import { getActionItemsFromToolOutput } from '../utils/toolOutput';
 import {
   FileText,
   Sparkles,
   CheckCircle2,
-  Circle,
-  AlertTriangle,
-  ArrowRight,
   RefreshCw,
   Flag,
   Calendar,
@@ -41,7 +39,7 @@ export function ActionItemExtractionPreview({
   onConvertToTasks,
   onDismiss,
 }: ActionItemExtractionPreviewProps) {
-  const { theme, callTool, toolOutput } = useOpenAI();
+  const { theme, toolOutput } = useOpenAI();
   const { actionItems: fetchedActionItems, loading, fetchActionItems, convertToTasks } = useActionItems();
   const { jobs, fetchJobs } = useAIJobs();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -52,13 +50,31 @@ export function ActionItemExtractionPreview({
 
   // Use pre-populated toolOutput.actionItems if available (from tool call that triggered this widget)
   // Otherwise fall back to fetched action items
-  const preloadedItems = (toolOutput as { actionItems?: ActionItem[] })?.actionItems;
+  const preloadedItems = getActionItemsFromToolOutput(toolOutput);
   const actionItems = preloadedItems || fetchedActionItems;
 
   // Get extraction jobs in progress
   const extractionJobs = jobs.filter(
     (j) => j.type === 'extract_action_items' && j.status === 'processing'
   );
+
+  useEffect(() => {
+    if (!preloadedItems || preloadedItems.length === 0) {
+      fetchActionItems();
+    }
+  }, [fetchActionItems, preloadedItems]);
+
+  useEffect(() => {
+    fetchJobs(true);
+  }, [fetchJobs]);
+
+  useEffect(() => {
+    if (extractionJobs.length === 0) return;
+    const intervalId = setInterval(() => {
+      fetchJobs(true);
+    }, 4000);
+    return () => clearInterval(intervalId);
+  }, [extractionJobs.length, fetchJobs]);
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -97,11 +113,13 @@ export function ActionItemExtractionPreview({
 
   const handleConvert = async () => {
     if (selectedIds.size === 0) return;
+    const ids = Array.from(selectedIds);
     setIsConverting(true);
     try {
-      await convertToTasks(Array.from(selectedIds));
+      await convertToTasks(ids);
       setSelectedIds(new Set());
-      onConvertToTasks?.(Array.from(selectedIds));
+      onConvertToTasks?.(ids);
+      await fetchActionItems();
     } finally {
       setIsConverting(false);
     }

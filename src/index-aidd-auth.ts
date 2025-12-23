@@ -268,8 +268,8 @@ Please sign in to your AiDD account first:
 Option 1: Use the sign_in tool:
   sign_in(email: "your@email.com", password: "yourpassword")
 
-Option 2: Configure authentication in Claude Desktop settings:
-  Add to your claude_desktop_config.json:
+Option 2: Configure authentication in your MCP client settings:
+  Add to your MCP config file (e.g., claude_desktop_config.json):
   "env": {
     "AIDD_EMAIL": "your@email.com",
     "AIDD_PASSWORD": "yourpassword"
@@ -357,8 +357,8 @@ Use the sign_in tool:
 sign_in(email: "your@email.com", password: "yourpassword")
 \`\`\`
 
-### Option 2: Configure in Claude Desktop settings
-Add to ~/.config/claude/claude_desktop_config.json:
+### Option 2: Configure in your MCP client settings
+Add to your MCP config file (e.g., ~/.config/claude/claude_desktop_config.json):
 \`\`\`json
 {
   "mcpServers": {

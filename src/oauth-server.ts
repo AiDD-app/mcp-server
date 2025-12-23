@@ -18,8 +18,8 @@ interface OAuthConfig {
   scope?: string;
 }
 
-// Claude MCP client uses port 6274 for OAuth callbacks
-const CLAUDE_OAUTH_CALLBACK_PORT = 6274;
+// MCP clients commonly use port 6274 for OAuth callbacks
+const MCP_OAUTH_CALLBACK_PORT = 6274;
 // Fallback ports if 6274 is unavailable
 const FALLBACK_PORTS = [6274, 6275, 3001, 0];
 
@@ -155,7 +155,7 @@ export class OAuthServer {
                       <div class="checkmark">✅</div>
                       <h1>Authentication Successful!</h1>
                       <p class="message">You're now connected to AiDD</p>
-                      <p class="close-hint">You can close this window and return to Claude Desktop</p>
+                      <p class="close-hint">You can close this window and return to your app</p>
                     </div>
                   </body>
                 </html>

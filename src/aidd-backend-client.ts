@@ -224,7 +224,7 @@ export class AiDDBackendClient extends EventEmitter {
         },
         body: JSON.stringify({
           deviceId: devId,
-          deviceName: 'Claude Desktop MCP',
+          deviceName: 'AiDD MCP Client',
           platform: 'macos',
         }),
       });

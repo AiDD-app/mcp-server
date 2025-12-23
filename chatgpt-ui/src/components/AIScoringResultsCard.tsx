@@ -9,6 +9,7 @@ import React, { useEffect, useState } from 'react';
 import { useTasks, useAIJobs, useOpenAI } from '../hooks/useOpenAI';
 import type { Task, ScoringResult, AIJob } from '../types/openai';
 import { cn } from '../utils/cn';
+import { getJobsFromToolOutput, getTasksFromToolOutput } from '../utils/toolOutput';
 import {
   Sparkles,
   TrendingUp,
@@ -47,8 +48,8 @@ export function AIScoringResultsCard({
 
   // Use pre-populated toolOutput.tasks if available (from tool call that triggered this widget)
   // Otherwise fall back to fetched tasks
-  const preloadedTasks = (toolOutput as { tasks?: Task[]; jobs?: AIJob[] })?.tasks;
-  const preloadedJobs = (toolOutput as { tasks?: Task[]; jobs?: AIJob[] })?.jobs;
+  const preloadedTasks = getTasksFromToolOutput(toolOutput);
+  const preloadedJobs = getJobsFromToolOutput(toolOutput);
   const tasks = preloadedTasks || fetchedTasks;
   const jobs = preloadedJobs || fetchedJobs;
 

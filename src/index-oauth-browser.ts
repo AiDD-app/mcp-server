@@ -188,7 +188,7 @@ class AiDDOAuthServer {
               <body>
                 <h1 class="error">Authentication Failed</h1>
                 <p>${error}</p>
-                <p>You can close this window and return to Claude Desktop.</p>
+                <p>You can close this window and return to your app.</p>
               </body>
               </html>
             `);

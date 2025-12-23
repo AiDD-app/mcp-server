@@ -9,6 +9,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { useTasks, useOpenAI } from '../hooks/useOpenAI';
 import type { Task } from '../types/openai';
 import { cn } from '../utils/cn';
+import { getTasksFromToolOutput } from '../utils/toolOutput';
 import {
   GitBranch,
   ArrowRight,
@@ -53,7 +54,7 @@ export function DependencyGraph({
 
   // Use pre-populated toolOutput.tasks if available (from tool call that triggered this widget)
   // Otherwise fall back to fetched tasks
-  const preloadedTasks = (toolOutput as { tasks?: Task[] })?.tasks;
+  const preloadedTasks = getTasksFromToolOutput(toolOutput);
   const tasks = preloadedTasks || fetchedTasks;
 
   useEffect(() => {

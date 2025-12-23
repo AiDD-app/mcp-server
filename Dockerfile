@@ -38,7 +38,7 @@ COPY favicon-32.png ./
 # Set environment
 ENV NODE_ENV=production
 ENV PORT=8080
-ENV BUILD_TIMESTAMP=20251219-revert-to-original-format-v4.9.0
+ENV BUILD_TIMESTAMP=20251222-remove-claude-branding-v4.4.4
 
 # Expose port
 EXPOSE 8080

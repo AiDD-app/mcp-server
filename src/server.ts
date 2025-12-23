@@ -159,7 +159,7 @@ app.post('/register', (req, res) => {
   res.json({
     client_id: clientId,
     client_secret: clientSecret,
-    client_name: client_name || 'Claude AI',
+    client_name: client_name || 'MCP Client',
     redirect_uris: redirect_uris || [],
     grant_types: ['authorization_code', 'refresh_token'],
     response_types: ['code'],
@@ -638,7 +638,7 @@ app.listen(PORT, () => {
 ║   • OAuth Discovery: /.well-known/oauth-authorization-server ║
 ║   • Client Registration: /register                        ║
 ║                                                            ║
-║   Status: ✅ Ready for Claude web & mobile                ║
+║   Status: ✅ Ready for MCP clients                        ║
 ║                                                            ║
 ╚════════════════════════════════════════════════════════════╝
   `);

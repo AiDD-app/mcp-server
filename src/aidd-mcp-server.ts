@@ -21,7 +21,7 @@ import {
 } from './subscription-manager.js';
 import { E2EEncryptionManager, getE2EManager } from './e2e-encryption-manager.js';
 import { getAnalytics } from './analytics/ga4.js';
-import { CHATGPT_UI_WIDGETS_HTML, WIDGET_RESOURCES, TOOL_WIDGET_MAP } from './chatgpt-ui-resources.js';
+import { CHATGPT_UI_WIDGETS_HTML, WIDGET_RESOURCES } from './chatgpt-ui-resources.js';
 
 export class AiDDMCPServer {
   private server: Server;
@@ -44,7 +44,7 @@ export class AiDDMCPServer {
     this.server = new Server(
       {
         name: 'AiDD',
-        version: '4.3.0',
+        version: '4.4.0',
         icons: [{
           src: `${BASE_URL}/icon.png`,
           mimeType: 'image/png',
@@ -412,13 +412,13 @@ export class AiDDMCPServer {
   }
 
   private getTools(): Tool[] {
-    const tools: Tool[] = [
+    return [
       {
         name: 'list_notes',
         description: 'List notes from your AiDD account with optional sorting and pagination',
-        annotations: { readOnlyHint: true },
+        annotations: { readOnlyHint: true, openWorldHint: false },
         inputSchema: {
-          type: 'object' as const,
+          type: 'object',
           properties: {
             sortBy: { type: 'string', enum: ['createdAt', 'updatedAt', 'title'], description: 'Field to sort by (default: updatedAt)' },
             order: { type: 'string', enum: ['asc', 'desc'], description: 'Sort order (default: desc)' },
@@ -426,11 +426,14 @@ export class AiDDMCPServer {
             offset: { type: 'number', description: 'Number of notes to skip for pagination (default: 0)' },
           },
         },
+        _meta: {
+          'openai/outputTemplate': 'ui://widget/notes-list.html',
+        },
       },
       {
         name: 'read_note',
         description: 'Read a specific note from your AiDD account',
-        annotations: { readOnlyHint: true },
+        annotations: { readOnlyHint: true, openWorldHint: false },
         inputSchema: {
           type: 'object',
           properties: { noteId: { type: 'string', description: 'ID of the note to read' } },
@@ -440,7 +443,7 @@ export class AiDDMCPServer {
       {
         name: 'create_note',
         description: 'Create a new note in your AiDD account',
-        annotations: { readOnlyHint: false, destructiveHint: false },
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
         inputSchema: {
           type: 'object',
           properties: {
@@ -455,7 +458,7 @@ export class AiDDMCPServer {
       {
         name: 'list_action_items',
         description: 'List action items from your AiDD account with optional sorting and pagination',
-        annotations: { readOnlyHint: true },
+        annotations: { readOnlyHint: true, openWorldHint: false },
         inputSchema: {
           type: 'object',
           properties: {
@@ -465,11 +468,14 @@ export class AiDDMCPServer {
             offset: { type: 'number', description: 'Number of action items to skip for pagination (default: 0)' },
           },
         },
+        _meta: {
+          'openai/outputTemplate': 'ui://widget/action-items.html',
+        },
       },
       {
         name: 'read_action_item',
         description: 'Read a specific action item from your AiDD account',
-        annotations: { readOnlyHint: true },
+        annotations: { readOnlyHint: true, openWorldHint: false },
         inputSchema: {
           type: 'object',
           properties: { actionItemId: { type: 'string', description: 'ID of the action item to read' } },
@@ -479,7 +485,7 @@ export class AiDDMCPServer {
       {
         name: 'create_action_item',
         description: 'Create a new action item in your AiDD account',
-        annotations: { readOnlyHint: false, destructiveHint: false },
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
         inputSchema: {
           type: 'object',
           properties: {
@@ -496,7 +502,7 @@ export class AiDDMCPServer {
       {
         name: 'extract_action_items',
         description: 'Extract action items from notes or text using AiDD AI processing',
-        annotations: { readOnlyHint: false, destructiveHint: false },
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
         inputSchema: {
           type: 'object',
           properties: {
@@ -511,7 +517,7 @@ export class AiDDMCPServer {
       {
         name: 'list_tasks',
         description: 'List tasks from your AiDD account with optional sorting and pagination',
-        annotations: { readOnlyHint: true },
+        annotations: { readOnlyHint: true, openWorldHint: false },
         inputSchema: {
           type: 'object',
           properties: {
@@ -521,11 +527,14 @@ export class AiDDMCPServer {
             offset: { type: 'number', description: 'Number of tasks to skip for pagination (default: 0)' },
           },
         },
+        _meta: {
+          'openai/outputTemplate': 'ui://widget/task-dashboard.html',
+        },
       },
       {
         name: 'read_task',
         description: 'Read a specific task from your AiDD account',
-        annotations: { readOnlyHint: true },
+        annotations: { readOnlyHint: true, openWorldHint: false },
         inputSchema: {
           type: 'object',
           properties: { taskId: { type: 'string', description: 'ID of the task to read' } },
@@ -535,7 +544,7 @@ export class AiDDMCPServer {
       {
         name: 'create_task',
         description: 'Create a new task in your AiDD account',
-        annotations: { readOnlyHint: false, destructiveHint: false },
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
         inputSchema: {
           type: 'object',
           properties: {
@@ -553,7 +562,7 @@ export class AiDDMCPServer {
       {
         name: 'convert_to_tasks',
         description: 'Convert action items to ADHD-optimized tasks. IMPORTANT: When user says "convert these action items" or references specific items from a previous extraction/creation, you MUST pass those specific IDs in actionItemIds. Only use convertAll:true when user explicitly says "convert ALL action items".',
-        annotations: { readOnlyHint: false, destructiveHint: false },
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
         inputSchema: {
           type: 'object',
           properties: {
@@ -569,7 +578,7 @@ export class AiDDMCPServer {
       {
         name: 'score_tasks',
         description: 'Score tasks for ADHD-friendly prioritization. Submits a background AI job and returns immediately with a job ID. Tell user to check back in 5 minutes for results via list_tasks.',
-        annotations: { readOnlyHint: false, destructiveHint: false },
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
         inputSchema: {
           type: 'object',
           properties: {
@@ -578,11 +587,14 @@ export class AiDDMCPServer {
             waitForCompletion: { type: 'boolean', description: 'AVOID using true - causes timeouts. Default false returns immediately.' },
           },
         },
+        _meta: {
+          'openai/outputTemplate': 'ui://widget/ai-scoring.html',
+        },
       },
       {
         name: 'check_ai_jobs',
         description: 'Check the status and progress of AI processing jobs (action item extraction, task conversion, AI scoring). Use this to monitor long-running operations or check if a job has completed.',
-        annotations: { readOnlyHint: true },
+        annotations: { readOnlyHint: true, openWorldHint: false },
         inputSchema: {
           type: 'object',
           properties: {
@@ -594,7 +606,7 @@ export class AiDDMCPServer {
       {
         name: 'update_note',
         description: 'Update an existing note in your AiDD account',
-        annotations: { readOnlyHint: false, destructiveHint: false },
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
         inputSchema: {
           type: 'object',
           properties: {
@@ -610,7 +622,7 @@ export class AiDDMCPServer {
       {
         name: 'delete_notes',
         description: 'Delete one or more notes from your AiDD account',
-        annotations: { readOnlyHint: false, destructiveHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
         inputSchema: {
           type: 'object',
           properties: { noteIds: { type: 'array', items: { type: 'string' }, description: 'IDs of the notes to delete' } },
@@ -620,7 +632,7 @@ export class AiDDMCPServer {
       {
         name: 'update_action_item',
         description: 'Update an existing action item in your AiDD account',
-        annotations: { readOnlyHint: false, destructiveHint: false },
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
         inputSchema: {
           type: 'object',
           properties: {
@@ -639,7 +651,7 @@ export class AiDDMCPServer {
       {
         name: 'delete_action_items',
         description: 'Delete one or more action items from your AiDD account. Also deletes any tasks that were derived/converted from these action items.',
-        annotations: { readOnlyHint: false, destructiveHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
         inputSchema: {
           type: 'object',
           properties: { actionItemIds: { type: 'array', items: { type: 'string' }, description: 'IDs of the action items to delete' } },
@@ -649,7 +661,7 @@ export class AiDDMCPServer {
       {
         name: 'update_task',
         description: 'Update an existing task in your AiDD account',
-        annotations: { readOnlyHint: false, destructiveHint: false },
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
         inputSchema: {
           type: 'object',
           properties: {
@@ -669,7 +681,7 @@ export class AiDDMCPServer {
       {
         name: 'delete_tasks',
         description: 'Delete one or more tasks from your AiDD account',
-        annotations: { readOnlyHint: false, destructiveHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
         inputSchema: {
           type: 'object',
           properties: { taskIds: { type: 'array', items: { type: 'string' }, description: 'IDs of the tasks to delete' } },
@@ -679,7 +691,7 @@ export class AiDDMCPServer {
       {
         name: 'session_status',
         description: 'Check your AiDD authentication session status including token expiry and subscription tier. Use this to verify your connection is healthy.',
-        annotations: { readOnlyHint: true },
+        annotations: { readOnlyHint: true, openWorldHint: false },
         inputSchema: {
           type: 'object',
           properties: {},
@@ -688,7 +700,7 @@ export class AiDDMCPServer {
       {
         name: 'aidd_overview_tutorial',
         description: 'Get a comprehensive overview of AiDD MCP tools and an interactive hands-on tutorial. Use this to learn what AiDD can do and how to use it effectively for ADHD-optimized productivity.',
-        annotations: { readOnlyHint: true },
+        annotations: { readOnlyHint: true, openWorldHint: false },
         inputSchema: {
           type: 'object',
           properties: {
@@ -705,29 +717,18 @@ export class AiDDMCPServer {
         },
       },
     ];
-    return tools.map(tool => this.addToolUIMeta(tool));
-  }
-
-  /**
-   * DISABLED: _meta on tool definitions causes ChatGPT to hide all tools.
-   * _meta should only be on tool RESPONSES, not definitions.
-   * The TOOL_WIDGET_MAP is used in tool response handlers instead.
-   */
-  private addToolUIMeta(tool: Tool): Tool {
-    // Return tool unchanged - _meta is added to responses, not definitions
-    return tool;
   }
 
   private getResources(): Resource[] {
-    // Data resources (JSON)
-    const dataResources: Resource[] = [
+    // Include both data resources and UI widget resources
+    const dataResources = [
       { uri: 'aidd://notes', name: 'Notes', description: 'All notes from your AiDD account', mimeType: 'application/json' },
       { uri: 'aidd://action-items', name: 'Action Items', description: 'All action items from your AiDD account', mimeType: 'application/json' },
       { uri: 'aidd://tasks', name: 'Tasks', description: 'All ADHD-optimized tasks from your AiDD account', mimeType: 'application/json' },
     ];
 
-    // ChatGPT UI widget resources (HTML+skybridge for iframe rendering)
-    const widgetResources: Resource[] = WIDGET_RESOURCES.map(w => ({
+    // Add ChatGPT UI widget resources (text/html+skybridge for ChatGPT widget rendering)
+    const widgetResources = WIDGET_RESOURCES.map(w => ({
       uri: w.uri,
       name: w.name,
       description: w.description,
@@ -749,29 +750,37 @@ export class AiDDMCPServer {
 
       notes = await this.enrichNotesWithExtractedActionItems(notes);
 
-      // Build comprehensive note list with ALL available metadata
-      const noteDetails = notes.slice(0, 10).map((note: any, i: number) => {
-        const lines = [`${i + 1}. **${note.title}**`, `   • ID: ${note.id}`];
-        if (note.category) lines.push(`   • Category: ${note.category}`);
-        if (note.content) lines.push(`   • Content Preview: ${note.content.substring(0, 100)}${note.content.length > 100 ? '...' : ''}`);
-        if (note.tags && note.tags.length > 0) lines.push(`   • Tags: ${note.tags.join(', ')}`);
+      // Build structured note data for ChatGPT widgets
+      // ChatGPT expects JSON-encoded data in the text field for proper widget rendering
+      const structuredNotes = notes.map((note: any) => ({
+        id: note.id,
+        title: note.title,
+        contentPreview: note.content ? note.content.substring(0, 200) + (note.content.length > 200 ? '...' : '') : null,
+        category: note.category || 'personal',
+        tags: note.tags || [],
+        status: note.isDeleted ? 'deleted' : 'active',
         // Source/origin info
-        if (note.sourceNoteId) lines.push(`   • Source Note ID: ${note.sourceNoteId}`);
-        if (note.source) lines.push(`   • Source: ${note.source}`);
-        if (note.emailSubject) lines.push(`   • Email Subject: ${note.emailSubject}`);
-        if (note.emailFrom) lines.push(`   • Email From: ${note.emailFrom}`);
+        sourceNoteId: note.sourceNoteId || null,
+        source: note.source || null,
+        emailSubject: note.emailSubject || null,
+        emailFrom: note.emailFrom || null,
         // Extracted action items
-        if ((note as any).extractedActionItemCount > 0) lines.push(`   • Extracted Action Items: ${(note as any).extractedActionItemCount}`);
-        // Status
-        if (note.isDeleted) lines.push(`   • Status: 🗑️ Deleted`);
+        extractedActionItemCount: (note as any).extractedActionItemCount || 0,
         // Timestamps
-        if (note.createdAt) lines.push(`   • Created: ${new Date(note.createdAt).toLocaleString()}`);
-        if (note.updatedAt) lines.push(`   • Updated: ${new Date(note.updatedAt).toLocaleString()}`);
-        return lines.join('\n');
-      }).join('\n\n');
+        createdAt: note.createdAt || null,
+        updatedAt: note.updatedAt || null,
+      }));
 
-      const response = `📝 **Notes Retrieved**\n\n**Total notes:** ${notes.length}\n\n${noteDetails}\n${notes.length > 10 ? `\n... and ${notes.length - 10} more notes` : ''}`;
-      return { content: [{ type: 'text', text: response } as TextContent] };
+      // Return JSON-encoded data for ChatGPT widget compatibility
+      // Return structuredContent for ChatGPT widget rendering
+      return {
+        structuredContent: {
+          success: true,
+          totalNotes: notes.length,
+          notes: structuredNotes,
+        },
+        content: [{ type: 'text', text: `Retrieved ${notes.length} note${notes.length !== 1 ? 's' : ''} from your AiDD account` } as TextContent],
+      };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error listing notes: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
     }
@@ -827,32 +836,40 @@ export class AiDDMCPServer {
 
       actionItems = await this.enrichActionItemsWithDerivedTasks(actionItems);
 
-      // Build comprehensive action item list with ALL available metadata
-      const itemDetails = actionItems.slice(0, 10).map((item: any, i: number) => {
-        const lines = [`${i + 1}. **${item.title}**`, `   • ID: ${item.id}`];
-        if (item.description) lines.push(`   • Description: ${item.description.substring(0, 100)}${item.description.length > 100 ? '...' : ''}`);
-        if (item.priority) lines.push(`   • Priority: ${item.priority}`);
-        if (item.category) lines.push(`   • Category: ${item.category}`);
-        if (item.confidence !== undefined) lines.push(`   • AI Confidence: ${(item.confidence * 100).toFixed(0)}%`);
+      // Build structured action item data for ChatGPT widgets
+      // ChatGPT expects JSON-encoded data in the text field for proper widget rendering
+      const structuredItems = actionItems.map((item: any) => ({
+        id: item.id,
+        title: item.title,
+        description: item.description || null,
+        priority: item.priority || null,
+        category: item.category || null,
+        status: item.isCompleted ? 'completed' : (item.isDeleted ? 'deleted' : 'pending'),
+        // AI confidence
+        confidence: item.confidence !== undefined ? Math.round(item.confidence * 100) : undefined,
         // Source info
-        if (item.sourceNoteId) lines.push(`   • Source Note ID: ${item.sourceNoteId}`);
-        if (item.source) lines.push(`   • Source: ${item.source}`);
+        sourceNoteId: item.sourceNoteId || null,
+        source: item.source || null,
         // Derived tasks
-        if (item.derivedTaskCount > 0) lines.push(`   • Derived Tasks: ${item.derivedTaskCount} task(s) created`);
+        derivedTaskCount: item.derivedTaskCount || 0,
         // Due date and tags
-        if (item.dueDate) lines.push(`   • Due Date: ${new Date(item.dueDate).toLocaleDateString()}`);
-        if (item.tags && item.tags.length > 0) lines.push(`   • Tags: ${item.tags.join(', ')}`);
-        // Status
-        if (item.isCompleted) lines.push(`   • Status: ✅ Completed`);
-        if (item.isDeleted) lines.push(`   • Status: 🗑️ Deleted`);
+        dueDate: item.dueDate || null,
+        tags: item.tags || [],
         // Timestamps
-        if (item.createdAt) lines.push(`   • Created: ${new Date(item.createdAt).toLocaleString()}`);
-        if (item.updatedAt) lines.push(`   • Updated: ${new Date(item.updatedAt).toLocaleString()}`);
-        return lines.join('\n');
-      }).join('\n\n');
+        createdAt: item.createdAt || null,
+        updatedAt: item.updatedAt || null,
+      }));
 
-      const response = `📋 **Action Items Retrieved**\n\n**Total action items:** ${actionItems.length}\n\n${itemDetails}\n${actionItems.length > 10 ? `\n... and ${actionItems.length - 10} more items` : ''}`;
-      return { content: [{ type: 'text', text: response } as TextContent] };
+      // Return JSON-encoded data for ChatGPT widget compatibility
+      // Return structuredContent for ChatGPT widget rendering
+      return {
+        structuredContent: {
+          success: true,
+          totalActionItems: actionItems.length,
+          actionItems: structuredItems,
+        },
+        content: [{ type: 'text', text: `Retrieved ${actionItems.length} action item${actionItems.length !== 1 ? 's' : ''} from your AiDD account` } as TextContent],
+      };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error listing action items: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
     }
@@ -1200,50 +1217,56 @@ export class AiDDMCPServer {
         tasks = this.sortTasksByDependencyOrder(tasks);
       }
 
-      // Build comprehensive task list with ALL available metadata
-      const taskDetails = tasks.slice(0, 10).map((task: any, i: number) => {
+      // Build structured task data for ChatGPT widgets
+      // ChatGPT expects JSON-encoded data in the text field for proper widget rendering
+      const structuredTasks = tasks.map((task: any) => {
         const hasScores = task.relevanceScore !== undefined && task.impactScore !== undefined && task.urgencyScore !== undefined;
-        const overallScore = hasScores ? ((task.relevanceScore + task.impactScore + task.urgencyScore) / 3 * 100).toFixed(0) : undefined;
-        const sourceInfo = task.sourceActionItem
-          ? `• Source Action Item: ${task.sourceActionItem.title} (ID: ${task.actionItemId})`
-          : (task.actionItemId ? `• Source Action Item ID: ${task.actionItemId}` : '');
+        const overallScore = hasScores ? Math.round((task.relevanceScore + task.impactScore + task.urgencyScore) / 3 * 100) : undefined;
 
-        // Build all available fields
-        const lines = [`${i + 1}. **${task.title}**`, `   • ID: ${task.id}`];
-        if (sourceInfo) lines.push(`   ${sourceInfo}`);
-        if (task.description) lines.push(`   • Description: ${task.description.substring(0, 100)}${task.description.length > 100 ? '...' : ''}`);
-        // AI Scores
-        if (task.hasBeenAIScored) lines.push(`   • AI Scored: ✓`);
-        if (overallScore) lines.push(`   • Overall AI Score: ${overallScore}%`);
-        if (task.urgencyScore !== undefined) lines.push(`   • Urgency Score: ${(task.urgencyScore * 100).toFixed(0)}%`);
-        if (task.impactScore !== undefined) lines.push(`   • Impact Score: ${(task.impactScore * 100).toFixed(0)}%`);
-        if (task.relevanceScore !== undefined) lines.push(`   • Relevance Score: ${(task.relevanceScore * 100).toFixed(0)}%`);
-        // Legacy score/factors (if present)
-        if (task.score !== undefined) lines.push(`   • Score (legacy): ${task.score}`);
-        if (task.factors) lines.push(`   • Factors: urgency=${task.factors.urgency}, importance=${task.factors.importance}, effort=${task.factors.effort}, adhd=${task.factors.adhd_compatibility}`);
-        // Task metadata
-        if (task.estimatedTime) lines.push(`   • Estimated Time: ${task.estimatedTime} min`);
-        if (task.energyRequired) lines.push(`   • Energy Required: ${task.energyRequired}`);
-        if (task.taskType) lines.push(`   • Task Type: ${task.taskType}`);
-        if (task.dueDate) lines.push(`   • Due Date: ${new Date(task.dueDate).toLocaleDateString()}`);
-        if (task.tags && task.tags.length > 0) lines.push(`   • Tags: ${task.tags.join(', ')}`);
-        if (task.taskOrder !== undefined) lines.push(`   • Task Order: ${task.taskOrder}`);
-        // Show resolved dependency titles (or fall back to order numbers)
-        if (task.resolvedDependencies && task.resolvedDependencies.length > 0) {
-          lines.push(`   • Dependencies: ${task.resolvedDependencies.join(', ')}`);
-        } else if (task.dependsOnTaskOrders && task.dependsOnTaskOrders.length > 0) {
-          lines.push(`   • Dependencies: Tasks ${task.dependsOnTaskOrders.join(', ')}`);
-        }
-        // Status
-        if (task.isCompleted) lines.push(`   • Status: ✅ Completed`);
-        if (task.createdAt) lines.push(`   • Created: ${new Date(task.createdAt).toLocaleString()}`);
-        if (task.updatedAt) lines.push(`   • Updated: ${new Date(task.updatedAt).toLocaleString()}`);
+        return {
+          id: task.id,
+          title: task.title,
+          description: task.description || null,
+          status: task.isCompleted ? 'completed' : 'pending',
+          // AI Scores
+          hasBeenAIScored: task.hasBeenAIScored || false,
+          overallScore: overallScore,
+          urgencyScore: task.urgencyScore !== undefined ? Math.round(task.urgencyScore * 100) : undefined,
+          impactScore: task.impactScore !== undefined ? Math.round(task.impactScore * 100) : undefined,
+          relevanceScore: task.relevanceScore !== undefined ? Math.round(task.relevanceScore * 100) : undefined,
+          // Task metadata
+          estimatedTime: task.estimatedTime || null,
+          energyRequired: task.energyRequired || null,
+          taskType: task.taskType || null,
+          dueDate: task.dueDate || null,
+          tags: task.tags || [],
+          taskOrder: task.taskOrder,
+          // Source and dependencies
+          actionItemId: task.actionItemId || null,
+          sourceActionItem: task.sourceActionItem ? {
+            title: task.sourceActionItem.title,
+            priority: task.sourceActionItem.priority,
+            category: task.sourceActionItem.category,
+          } : null,
+          dependencies: task.resolvedDependencies || (task.dependsOnTaskOrders ? task.dependsOnTaskOrders.map((o: number) => `Task #${o}`) : []),
+          // Timestamps
+          createdAt: task.createdAt || null,
+          updatedAt: task.updatedAt || null,
+        };
+      });
 
-        return lines.join('\n');
-      }).join('\n\n');
-
-      const response = `✅ **Tasks Retrieved**\n\n**Total tasks:** ${tasks.length}\n\n${taskDetails}\n${tasks.length > 10 ? `\n... and ${tasks.length - 10} more tasks` : ''}`;
-      return { content: [{ type: 'text', text: response } as TextContent] };
+      // Return JSON-encoded data for ChatGPT widget compatibility
+      // The model can parse this JSON and render it as a structured task list
+      // Return structuredContent for ChatGPT widget rendering
+      // The widget reads from window.openai.toolOutput, model reads content for narration
+      return {
+        structuredContent: {
+          success: true,
+          totalTasks: tasks.length,
+          tasks: structuredTasks,
+        },
+        content: [{ type: 'text', text: `Retrieved ${tasks.length} task${tasks.length !== 1 ? 's' : ''} from your AiDD account` } as TextContent],
+      };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error listing tasks: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
     }
@@ -2511,7 +2534,7 @@ list_tasks:
   }
 
   private async handleResourceRead(uri: string) {
-    // Data resources
+    // Handle data resources
     switch (uri) {
       case 'aidd://notes':
         const notes = await this.backendClient.listNotes({});
@@ -2524,19 +2547,17 @@ list_tasks:
         return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(tasks, null, 2) }] };
     }
 
-    // ChatGPT UI widget resources (all widgets use the same HTML bundle)
-    // Uses ui://widget/ URI scheme as required by OpenAI Apps SDK
+    // Handle UI widget resources (ui://widget/*)
     if (uri.startsWith('ui://widget/')) {
-      const widgetResource = WIDGET_RESOURCES.find(w => w.uri === uri);
-      if (widgetResource) {
-        return {
-          contents: [{
-            uri,
-            mimeType: 'text/html+skybridge',
-            text: CHATGPT_UI_WIDGETS_HTML,
-          }]
-        };
-      }
+      // All widget URIs serve the same bundled React app
+      // The app routes internally based on the tool that triggered it
+      return {
+        contents: [{
+          uri,
+          mimeType: 'text/html+skybridge',
+          text: CHATGPT_UI_WIDGETS_HTML,
+        }],
+      };
     }
 
     throw new McpError(ErrorCode.InvalidRequest, `Unknown resource: ${uri}`);

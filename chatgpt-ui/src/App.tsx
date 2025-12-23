@@ -4,7 +4,7 @@
  * Demo app showing all available widgets.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useOpenAI } from './hooks/useOpenAI';
 import { TaskPriorityDashboard } from './components/TaskPriorityDashboard';
 import { ActionItemExtractionPreview } from './components/ActionItemExtractionPreview';
@@ -19,11 +19,52 @@ import './index.css';
 type WidgetView = 'dashboard' | 'extraction' | 'energy' | 'capture' | 'dependencies' | 'focus' | 'scoring';
 
 export default function App() {
-  const { theme, isReady } = useOpenAI();
+  const { theme, isReady, toolResponseMetadata } = useOpenAI();
   const [currentView, setCurrentView] = useState<WidgetView>('dashboard');
   const [focusTask, setFocusTask] = useState<Task | null>(null);
 
   const isDark = theme === 'dark';
+
+  const viewFromMetadata = useMemo<WidgetView | null>(() => {
+    if (!toolResponseMetadata) return null;
+    const template = toolResponseMetadata['openai/outputTemplate'];
+    if (typeof template === 'string') {
+      switch (template) {
+        case 'ui://widget/task-dashboard.html':
+          return 'dashboard';
+        case 'ui://widget/action-items.html':
+          return 'extraction';
+        case 'ui://widget/energy-selector.html':
+          return 'energy';
+        case 'ui://widget/quick-capture.html':
+          return 'capture';
+        case 'ui://widget/dependencies.html':
+          return 'dependencies';
+        case 'ui://widget/focus-mode.html':
+          return 'focus';
+        case 'ui://widget/ai-scoring.html':
+          return 'scoring';
+        default:
+          return null;
+      }
+    }
+    const invocation = toolResponseMetadata.invocation;
+    if (typeof invocation === 'string') {
+      if (invocation === 'list_tasks') return 'dashboard';
+      if (invocation === 'list_action_items' || invocation === 'extract_action_items' || invocation === 'convert_to_tasks') {
+        return 'extraction';
+      }
+      if (invocation === 'create_task') return 'capture';
+      if (invocation === 'score_tasks' || invocation === 'check_ai_jobs') return 'scoring';
+    }
+    return null;
+  }, [toolResponseMetadata]);
+
+  useEffect(() => {
+    if (viewFromMetadata && viewFromMetadata !== currentView) {
+      setCurrentView(viewFromMetadata);
+    }
+  }, [viewFromMetadata, currentView]);
 
   const handleTaskSelect = (task: Task) => {
     console.log('Task selected:', task);
@@ -62,6 +103,7 @@ export default function App() {
               { id: 'energy', label: '🔋 Energy' },
               { id: 'capture', label: '⚡ Capture' },
               { id: 'dependencies', label: '🔗 Dependencies' },
+              { id: 'focus', label: '🎯 Focus' },
               { id: 'scoring', label: '🧠 AI Scoring' },
             ].map((item) => (
               <button

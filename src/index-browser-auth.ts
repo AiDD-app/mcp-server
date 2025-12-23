@@ -192,7 +192,7 @@ class AiDDBrowserAuthServer {
               <body>
                 <h1 class="error">OAuth Authentication Failed</h1>
                 <p>${error}</p>
-                <p>You can close this window and return to Claude Desktop.</p>
+                <p>You can close this window and return to your app.</p>
               </body>
               </html>
             `);
@@ -282,7 +282,7 @@ class AiDDBrowserAuthServer {
                   idToken: idToken || accessToken,
                   authCode: null,
                   deviceId: `mcp-${sessionId}`,
-                  deviceName: 'Claude Desktop MCP',
+                  deviceName: 'AiDD MCP Client',
                   platform: 'macos',
                   clientType: 'mcp'
                 })
@@ -452,7 +452,7 @@ class AiDDBrowserAuthServer {
               <body>
                 <h1 class="error">SSO Authentication Failed</h1>
                 <p>${error}</p>
-                <p>You can close this window and return to Claude Desktop.</p>
+                <p>You can close this window and return to your app.</p>
               </body>
               </html>
             `, () => {
@@ -566,7 +566,7 @@ class AiDDBrowserAuthServer {
               <body>
                 <h1 class="error">Authentication Failed</h1>
                 <p>${error}</p>
-                <p>You can close this window and return to Claude Desktop.</p>
+                <p>You can close this window and return to your app.</p>
               </body>
               </html>
             `, () => {
@@ -592,7 +592,7 @@ class AiDDBrowserAuthServer {
                   email,
                   password,
                   deviceId: `mcp-${sessionId}`,
-                  deviceName: 'Claude Desktop MCP',
+                  deviceName: 'AiDD MCP Client',
                   platform: 'macos'  // Required field
                 })
               });
@@ -848,7 +848,7 @@ class AiDDBrowserAuthServer {
             <body>
               <div class="container">
                 <h1>Sign in to AiDD</h1>
-                <p class="subtitle">Connect your account to Claude Desktop</p>
+                <p class="subtitle">Connect to your AiDD account</p>
 
                 <form id="loginForm">
                   <div class="form-group">
