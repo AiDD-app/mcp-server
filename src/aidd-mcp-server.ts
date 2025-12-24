@@ -516,7 +516,7 @@ export class AiDDMCPServer {
       },
       {
         name: 'list_tasks',
-        description: 'List tasks from your AiDD account with optional sorting and pagination',
+        description: 'List tasks from your AiDD account with optional sorting and pagination. IMPORTANT: By default, tasks are sorted by AI score while respecting dependencies - you do NOT need to set sortBy or ignoreDependencies for normal "what should I work on" queries. Only use ignoreDependencies:true when the user explicitly asks to ignore/disregard dependencies.',
         annotations: { readOnlyHint: true, openWorldHint: false },
         inputSchema: {
           type: 'object',
