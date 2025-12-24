@@ -171,7 +171,7 @@ export function ActionItemExtractionPreview({
     <Tooltip.Provider>
       <div
         className={cn(
-          'rounded-xl border shadow-sm overflow-hidden',
+          'rounded-xl border shadow-sm overflow-hidden flex flex-col h-full',
           isDark ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'
         )}
       >
@@ -200,6 +200,34 @@ export function ActionItemExtractionPreview({
           </div>
 
           <div className="flex items-center gap-2">
+            <Tooltip.Root>
+              <Tooltip.Trigger asChild>
+                <button
+                  onClick={() => fetchActionItems()}
+                  disabled={loading}
+                  className={cn(
+                    'p-2 rounded-lg transition-colors',
+                    isDark
+                      ? 'hover:bg-gray-700 text-gray-300'
+                      : 'hover:bg-gray-100 text-gray-600',
+                    loading && 'opacity-50 cursor-not-allowed'
+                  )}
+                >
+                  <RefreshCw
+                    className={cn('w-4 h-4', loading && 'animate-spin')}
+                  />
+                </button>
+              </Tooltip.Trigger>
+              <Tooltip.Content
+                className={cn(
+                  'px-2 py-1 rounded text-xs',
+                  isDark ? 'bg-gray-700 text-white' : 'bg-gray-900 text-white'
+                )}
+              >
+                Refresh action items
+              </Tooltip.Content>
+            </Tooltip.Root>
+
             {selectedIds.size > 0 && (
               <button
                 onClick={handleConvert}
@@ -294,7 +322,7 @@ export function ActionItemExtractionPreview({
         )}
 
         {/* Content */}
-        <div className="p-4 max-h-96 overflow-y-auto">
+        <div className="p-4 flex-1 overflow-y-auto min-h-0">
           {loading ? (
             <div className="flex items-center justify-center py-8">
               <RefreshCw className="w-6 h-6 animate-spin text-blue-500" />

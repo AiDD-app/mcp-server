@@ -132,7 +132,7 @@ export function EnergyBasedTaskSelector({
   return (
     <div
       className={cn(
-        'rounded-xl border shadow-sm overflow-hidden',
+        'rounded-xl border shadow-sm overflow-hidden flex flex-col h-full',
         isDark ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'
       )}
     >

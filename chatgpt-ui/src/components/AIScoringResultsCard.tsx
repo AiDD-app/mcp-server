@@ -71,6 +71,24 @@ export function AIScoringResultsCard({
     }
   }, [jobs]);
 
+  // Poll for job status while scoring is in progress
+  useEffect(() => {
+    if (!lastScoringJob || lastScoringJob.status !== 'processing') return;
+
+    const intervalId = setInterval(() => {
+      fetchJobs(true);
+    }, 3000);
+
+    return () => clearInterval(intervalId);
+  }, [lastScoringJob?.status, fetchJobs]);
+
+  // Refresh tasks when scoring job completes
+  useEffect(() => {
+    if (lastScoringJob?.status === 'completed') {
+      fetchTasks('score', 100);
+    }
+  }, [lastScoringJob?.status, fetchTasks]);
+
   const handleStartScoring = async () => {
     setIsScoring(true);
     try {
@@ -145,7 +163,7 @@ export function AIScoringResultsCard({
     <Tooltip.Provider>
       <div
         className={cn(
-          'rounded-xl border shadow-sm overflow-hidden',
+          'rounded-xl border shadow-sm overflow-hidden flex flex-col h-full',
           isDark ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'
         )}
       >
@@ -217,7 +235,7 @@ export function AIScoringResultsCard({
         )}
 
         {/* Stats Grid */}
-        <div className="p-4">
+        <div className="p-4 flex-1 overflow-y-auto min-h-0">
           <div className="grid grid-cols-3 gap-4 mb-6">
             {/* Average Score */}
             <div

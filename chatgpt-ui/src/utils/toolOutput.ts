@@ -110,13 +110,40 @@ const normalizeEnergyRequired = (value: unknown): Task['energyRequired'] | undef
   return value as Task['energyRequired'];
 };
 
-export const normalizeTasks = (tasks: Task[]): Task[] => {
+interface SourceActionItem {
+  title: string;
+  priority?: string;
+  category?: string;
+}
+
+interface BackendTask extends Omit<Task, 'score' | 'dependsOnTaskIds'> {
+  overallScore?: number;
+  urgencyScore?: number;
+  impactScore?: number;
+  relevanceScore?: number;
+  dependencies?: string[];
+  sourceActionItem?: SourceActionItem;
+  score?: number;
+  dependsOnTaskIds?: string[];
+}
+
+export const normalizeTasks = (tasks: BackendTask[]): Task[] => {
   return tasks.map((task) => {
     const normalizedEnergy = normalizeEnergyRequired(task.energyRequired);
-    if (normalizedEnergy === task.energyRequired) {
-      return task;
-    }
-    return { ...task, energyRequired: normalizedEnergy };
+
+    // Map backend field names to frontend field names
+    const normalizedTask: Task = {
+      ...task,
+      // Use overallScore if score is not present
+      score: task.score ?? task.overallScore,
+      // Use dependencies if dependsOnTaskIds is not present
+      dependsOnTaskIds: task.dependsOnTaskIds ?? task.dependencies ?? [],
+      energyRequired: normalizedEnergy,
+      // Preserve sourceActionItem for display (extend Task type if needed)
+      ...(task.sourceActionItem && { sourceActionItem: task.sourceActionItem }),
+    };
+
+    return normalizedTask;
   });
 };
 

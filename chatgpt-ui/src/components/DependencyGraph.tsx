@@ -371,7 +371,7 @@ export function DependencyGraph({
     <Tooltip.Provider>
       <div
         className={cn(
-          'rounded-xl border shadow-sm overflow-hidden',
+          'rounded-xl border shadow-sm overflow-hidden flex flex-col h-full',
           isDark ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'
         )}
       >
@@ -446,7 +446,7 @@ export function DependencyGraph({
         </div>
 
         {/* Content */}
-        <div className="p-4 max-h-96 overflow-y-auto">
+        <div className="p-4 flex-1 overflow-y-auto min-h-0">
           {loading ? (
             <div className="flex items-center justify-center py-8">
               <RefreshCw className="w-6 h-6 animate-spin text-blue-500" />
