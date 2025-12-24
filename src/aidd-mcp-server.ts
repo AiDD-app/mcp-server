@@ -743,7 +743,10 @@ export class AiDDMCPServer {
       // Ensure E2E is initialized before fetching data
       await this.ensureE2EInitialized();
 
-      let notes = await this.backendClient.listNotes(args);
+      // Use pagination-aware method to get total count
+      const paginatedResult = await this.backendClient.listNotesWithPagination(args);
+      let notes = paginatedResult.items;
+      const { total, limit, offset, hasMore } = paginatedResult;
 
       // Decrypt notes if E2E is enabled
       notes = notes.map((note: any) => this.decryptNoteFromSync(note));
@@ -773,13 +776,32 @@ export class AiDDMCPServer {
 
       // Return JSON-encoded data for ChatGPT widget compatibility
       // Return structuredContent for ChatGPT widget rendering
+      // CRITICAL: Include IDs in text content so AI models can use them for delete operations
+      const notesList = structuredNotes.map((n: any, i: number) =>
+        `${offset + i + 1}. **${n.title || 'Untitled'}** (ID: \`${n.id}\`)${n.category ? ` [${n.category}]` : ''}${n.extractedActionItemCount > 0 ? ` - ${n.extractedActionItemCount} action items` : ''}`
+      ).join('\n');
+
+      // Build pagination info for the response
+      const paginationInfo = hasMore
+        ? `\n\n📄 **Showing ${offset + 1}-${offset + notes.length} of ${total} notes.** To see more, call \`list_notes\` with \`offset: ${offset + limit}\`.`
+        : '';
+
       return {
         structuredContent: {
           success: true,
-          totalNotes: notes.length,
+          // Pagination metadata
+          pagination: {
+            total,
+            returned: notes.length,
+            offset,
+            limit,
+            hasMore,
+            nextOffset: hasMore ? offset + limit : null,
+          },
+          totalNotes: total, // Keep for backwards compatibility
           notes: structuredNotes,
         },
-        content: [{ type: 'text', text: `Retrieved ${notes.length} note${notes.length !== 1 ? 's' : ''} from your AiDD account` } as TextContent],
+        content: [{ type: 'text', text: `📝 **Notes** (showing ${notes.length} of ${total} total)\n\n${notesList}${paginationInfo}\n\n*Use the IDs above with \`delete_notes\` to remove notes.*` } as TextContent],
       };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error listing notes: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
@@ -829,7 +851,10 @@ export class AiDDMCPServer {
     try {
       await this.ensureE2EInitialized();
 
-      let actionItems = await this.backendClient.listActionItems(args);
+      // Use pagination-aware method to get total count
+      const paginatedResult = await this.backendClient.listActionItemsWithPagination(args);
+      let actionItems = paginatedResult.items;
+      const { total, limit, offset, hasMore } = paginatedResult;
 
       // Decrypt action items if E2E is enabled
       actionItems = actionItems.map((item: any) => this.decryptActionItemFromSync(item));
@@ -862,13 +887,34 @@ export class AiDDMCPServer {
 
       // Return JSON-encoded data for ChatGPT widget compatibility
       // Return structuredContent for ChatGPT widget rendering
+      // CRITICAL: Include IDs in text content so AI models can use them for delete operations
+      const itemsList = structuredItems.map((item: any, i: number) => {
+        const priorityEmoji = item.priority === 'critical' ? '🔴' : item.priority === 'high' ? '🟠' : item.priority === 'medium' ? '🟡' : '🟢';
+        const statusIcon = item.status === 'completed' ? '✅' : item.derivedTaskCount > 0 ? '🔄' : '⬜';
+        return `${offset + i + 1}. ${statusIcon} **${item.title}** (ID: \`${item.id}\`) ${priorityEmoji}${item.dueDate ? ` 📅${new Date(item.dueDate).toLocaleDateString()}` : ''}${item.derivedTaskCount > 0 ? ` → ${item.derivedTaskCount} tasks` : ''}`;
+      }).join('\n');
+
+      // Build pagination info for the response
+      const paginationInfo = hasMore
+        ? `\n\n📄 **Showing ${offset + 1}-${offset + actionItems.length} of ${total} action items.** To see more, call \`list_action_items\` with \`offset: ${offset + limit}\`.`
+        : '';
+
       return {
         structuredContent: {
           success: true,
-          totalActionItems: actionItems.length,
+          // Pagination metadata
+          pagination: {
+            total,
+            returned: actionItems.length,
+            offset,
+            limit,
+            hasMore,
+            nextOffset: hasMore ? offset + limit : null,
+          },
+          totalActionItems: total, // Keep for backwards compatibility
           actionItems: structuredItems,
         },
-        content: [{ type: 'text', text: `Retrieved ${actionItems.length} action item${actionItems.length !== 1 ? 's' : ''} from your AiDD account` } as TextContent],
+        content: [{ type: 'text', text: `✅ **Action Items** (showing ${actionItems.length} of ${total} total)\n\n${itemsList}${paginationInfo}\n\n*Use the IDs above with \`delete_action_items\` to remove items.*` } as TextContent],
       };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error listing action items: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
@@ -1182,7 +1228,10 @@ export class AiDDMCPServer {
     try {
       await this.ensureE2EInitialized();
 
-      let tasks = await this.backendClient.listTasks(args);
+      // Use pagination-aware method to get total count
+      const paginatedResult = await this.backendClient.listTasksWithPagination(args);
+      let tasks = paginatedResult.items;
+      const { total, limit, offset, hasMore } = paginatedResult;
 
       // Decrypt tasks if E2E is enabled
       tasks = tasks.map((task: any) => this.decryptTaskFromSync(task));
@@ -1259,13 +1308,37 @@ export class AiDDMCPServer {
       // The model can parse this JSON and render it as a structured task list
       // Return structuredContent for ChatGPT widget rendering
       // The widget reads from window.openai.toolOutput, model reads content for narration
+      // CRITICAL: Include IDs in text content so AI models can use them for delete operations
+      const tasksList = structuredTasks.map((task: any, i: number) => {
+        const statusIcon = task.status === 'completed' ? '✅' : '⬜';
+        const scoreDisplay = task.overallScore !== undefined ? ` [${task.overallScore}%]` : '';
+        const timeDisplay = task.estimatedTime ? ` ~${task.estimatedTime}min` : '';
+        const energyEmoji = task.energyRequired === 'high' ? '⚡' : task.energyRequired === 'low' ? '🔋' : '';
+        const sourceDisplay = task.sourceActionItem ? ` ← "${task.sourceActionItem.title}"` : '';
+        return `${offset + i + 1}. ${statusIcon} **${task.title}** (ID: \`${task.id}\`)${scoreDisplay}${timeDisplay}${energyEmoji}${sourceDisplay}`;
+      }).join('\n');
+
+      // Build pagination info for the response
+      const paginationInfo = hasMore
+        ? `\n\n📄 **Showing ${offset + 1}-${offset + tasks.length} of ${total} tasks.** To see more, call \`list_tasks\` with \`offset: ${offset + limit}\`.`
+        : '';
+
       return {
         structuredContent: {
           success: true,
-          totalTasks: tasks.length,
+          // Pagination metadata
+          pagination: {
+            total,
+            returned: tasks.length,
+            offset,
+            limit,
+            hasMore,
+            nextOffset: hasMore ? offset + limit : null,
+          },
+          totalTasks: total, // Keep for backwards compatibility
           tasks: structuredTasks,
         },
-        content: [{ type: 'text', text: `Retrieved ${tasks.length} task${tasks.length !== 1 ? 's' : ''} from your AiDD account` } as TextContent],
+        content: [{ type: 'text', text: `📋 **Tasks** (showing ${tasks.length} of ${total} total)\n\n${tasksList}${paginationInfo}\n\n*Use the IDs above with \`delete_tasks\` to remove tasks.*` } as TextContent],
       };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error listing tasks: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };

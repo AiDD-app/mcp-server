@@ -22,6 +22,15 @@ interface ActionItem {
   sourceNoteId?: string;
 }
 
+// Pagination metadata for list responses
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+}
+
 interface ConvertedTask {
   actionItemId: string;
   taskOrder: number;
@@ -1238,6 +1247,108 @@ export class AiDDBackendClient extends EventEmitter {
       return await response.json();
     } catch (error) {
       this.emit('error', { type: 'readTask', error });
+      throw error;
+    }
+  }
+
+  // PAGINATION-AWARE LIST METHODS
+  // These return total counts so callers know when to paginate
+
+  async listTasksWithPagination(options: { sortBy?: string; order?: string; limit?: number; offset?: number } = {}): Promise<PaginatedResponse<any>> {
+    if (!this.deviceToken) await this.authenticate();
+    try {
+      const limit = options.limit || 100;
+      const offset = options.offset || 0;
+      const params = new URLSearchParams();
+      if (options.sortBy) params.append('sortBy', options.sortBy);
+      if (options.order) params.append('order', options.order);
+      params.append('limit', limit.toString());
+      params.append('offset', offset.toString());
+      const response = await this.fetchWithTimeout(`${this.baseUrl}/api/tasks?${params.toString()}`, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${this.deviceToken}`, 'Content-Type': 'application/json' },
+      });
+      if (!response.ok) throw new Error(`Failed to list tasks: ${response.statusText}`);
+      const data = await response.json() as { tasks?: any[]; total?: number };
+      const items = data.tasks || [];
+      const total = data.total || items.length;
+      return {
+        items,
+        total,
+        limit,
+        offset,
+        hasMore: offset + items.length < total
+      };
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        throw new Error('Request timed out while listing tasks - backend may be slow or unreachable');
+      }
+      this.emit('error', { type: 'listTasksWithPagination', error });
+      throw error;
+    }
+  }
+
+  async listActionItemsWithPagination(options: { sortBy?: string; order?: string; limit?: number; offset?: number } = {}): Promise<PaginatedResponse<ActionItem>> {
+    if (!this.deviceToken) await this.authenticate();
+    try {
+      const limit = options.limit || 100;
+      const offset = options.offset || 0;
+      const params = new URLSearchParams();
+      if (options.sortBy) params.append('sortBy', options.sortBy);
+      if (options.order) params.append('order', options.order);
+      params.append('limit', limit.toString());
+      params.append('offset', offset.toString());
+      const response = await this.fetchWithTimeout(`${this.baseUrl}/api/actionItems?${params.toString()}`, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${this.deviceToken}`, 'Content-Type': 'application/json' },
+      });
+      if (!response.ok) throw new Error(`Failed to list action items: ${response.statusText}`);
+      const data = await response.json() as { actionItems?: ActionItem[]; total?: number };
+      const items = data.actionItems || [];
+      const total = data.total || items.length;
+      return {
+        items,
+        total,
+        limit,
+        offset,
+        hasMore: offset + items.length < total
+      };
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        throw new Error('Request timed out while listing action items - backend may be slow or unreachable');
+      }
+      this.emit('error', { type: 'listActionItemsWithPagination', error });
+      throw error;
+    }
+  }
+
+  async listNotesWithPagination(options: { sortBy?: string; order?: string; limit?: number; offset?: number } = {}): Promise<PaginatedResponse<any>> {
+    if (!this.deviceToken) await this.authenticate();
+    try {
+      const limit = options.limit || 100;
+      const offset = options.offset || 0;
+      const params = new URLSearchParams();
+      if (options.sortBy) params.append('sortBy', options.sortBy);
+      if (options.order) params.append('order', options.order);
+      params.append('limit', limit.toString());
+      params.append('offset', offset.toString());
+      const response = await fetch(`${this.baseUrl}/api/notes?${params.toString()}`, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${this.deviceToken}`, 'Content-Type': 'application/json' },
+      });
+      if (!response.ok) throw new Error(`Failed to list notes: ${response.statusText}`);
+      const data = await response.json() as { notes?: any[]; total?: number };
+      const items = data.notes || [];
+      const total = data.total || items.length;
+      return {
+        items,
+        total,
+        limit,
+        offset,
+        hasMore: offset + items.length < total
+      };
+    } catch (error) {
+      this.emit('error', { type: 'listNotesWithPagination', error });
       throw error;
     }
   }
