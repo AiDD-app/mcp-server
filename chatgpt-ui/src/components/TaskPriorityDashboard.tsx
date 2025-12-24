@@ -89,7 +89,9 @@ export function TaskPriorityDashboard({
     ? tasks
     : tasks.filter((t) => !t.isCompleted);
 
-  const topTasks = filteredTasks.slice(0, maxTasks);
+  // Sort by score descending before slicing to get top tasks
+  const sortedTasks = [...filteredTasks].sort((a, b) => (b.score || 0) - (a.score || 0));
+  const topTasks = sortedTasks.slice(0, maxTasks);
 
   const handleScoreTasks = async () => {
     setIsScoring(true);
