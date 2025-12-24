@@ -521,10 +521,11 @@ export class AiDDMCPServer {
         inputSchema: {
           type: 'object',
           properties: {
-            sortBy: { type: 'string', enum: ['createdAt', 'updatedAt', 'score', 'dueDate', 'dependencyOrder'], description: 'Field to sort by (default: score). Use dependencyOrder to sort tasks by execution order respecting dependencies.' },
+            sortBy: { type: 'string', enum: ['createdAt', 'updatedAt', 'score', 'dueDate', 'dependencyOrder', 'scoreWithDependencies'], description: 'Field to sort by. Default behavior sorts by AI score while respecting task dependencies (scoreWithDependencies). Use dependencyOrder for pure topological sort. Use score with ignoreDependencies:true for pure score-based sorting.' },
             order: { type: 'string', enum: ['asc', 'desc'], description: 'Sort order (default: desc for score, asc for dueDate)' },
             limit: { type: 'number', description: 'Maximum number of tasks to return (default: 100)' },
             offset: { type: 'number', description: 'Number of tasks to skip for pagination (default: 0)' },
+            ignoreDependencies: { type: 'boolean', description: 'When true, sort purely by score without respecting task dependencies. Default: false (dependencies are respected)' },
           },
         },
         _meta: {
@@ -1059,6 +1060,26 @@ export class AiDDMCPServer {
   }
 
   /**
+   * Sort tasks purely by AI score (ignoring dependencies)
+   * @param tasks - Tasks to sort
+   * @param ascending - If true, sort lowest scores first; default is highest first
+   */
+  private sortTasksByScore(tasks: any[], ascending: boolean = false): any[] {
+    const getOverallScore = (task: any): number => {
+      if (task.relevanceScore !== undefined && task.impactScore !== undefined && task.urgencyScore !== undefined) {
+        return (task.relevanceScore + task.impactScore + task.urgencyScore) / 3;
+      }
+      return 0;
+    };
+
+    return [...tasks].sort((a, b) => {
+      const scoreA = getOverallScore(a);
+      const scoreB = getOverallScore(b);
+      return ascending ? scoreA - scoreB : scoreB - scoreA;
+    });
+  }
+
+  /**
    * Sort tasks by dependency order (topological sort)
    * Tasks with no dependencies come first, then tasks that depend on those, etc.
    * Within each level, tasks are sorted by taskOrder
@@ -1087,6 +1108,107 @@ export class AiDDMCPServer {
 
     // Standalone tasks go at the end
     return [...sortedGroups, ...standalonesTasks];
+  }
+
+  /**
+   * Sort tasks by score while respecting dependencies
+   * Mimics iOS DashboardTasksData.topologicalSortTasks logic:
+   * 1. Process tasks in AI score order (highest first)
+   * 2. For each task, recursively visit dependencies first (also in score order)
+   * 3. This ensures dependencies come before dependents, while maintaining score order among independent tasks
+   */
+  private sortTasksByScoreWithDependencies(tasks: any[]): any[] {
+    if (tasks.length === 0) return [];
+
+    // Calculate overall score for each task (matches iOS overallScore calculation)
+    const getOverallScore = (task: any): number => {
+      if (task.relevanceScore !== undefined && task.impactScore !== undefined && task.urgencyScore !== undefined) {
+        return (task.relevanceScore + task.impactScore + task.urgencyScore) / 3;
+      }
+      return 0; // Unscored tasks have lowest priority
+    };
+
+    // Build task lookup by ID
+    const taskById = new Map<string, any>();
+    tasks.forEach(task => {
+      if (task.id) {
+        taskById.set(task.id, task);
+      }
+    });
+
+    // Build task order to ID mapping (for dependsOnTaskOrders resolution)
+    const orderToId = new Map<number, string>();
+    tasks.forEach(task => {
+      if (task.taskOrder !== undefined && task.id) {
+        orderToId.set(task.taskOrder, task.id);
+      }
+    });
+
+    // Get all dependency IDs for a task (resolving both taskOrder and taskId references)
+    const getDependencyIds = (task: any): string[] => {
+      const depIds: string[] = [];
+
+      // Resolve dependsOnTaskOrders to IDs
+      const orderDeps = task.dependsOnTaskOrders || [];
+      orderDeps.forEach((depOrder: number) => {
+        const depId = orderToId.get(depOrder);
+        if (depId && taskById.has(depId)) {
+          depIds.push(depId);
+        }
+      });
+
+      // Add direct ID dependencies
+      const idDeps = task.dependsOnTaskIds || [];
+      idDeps.forEach((depId: string) => {
+        if (taskById.has(depId) && !depIds.includes(depId)) {
+          depIds.push(depId);
+        }
+      });
+
+      return depIds;
+    };
+
+    // Sort dependencies by score (highest first) - matches iOS sortedDependencies
+    const getSortedDependencies = (task: any): string[] => {
+      const depIds = getDependencyIds(task);
+      return depIds
+        .map(depId => ({ id: depId, score: getOverallScore(taskById.get(depId)) }))
+        .sort((a, b) => b.score - a.score)
+        .map(d => d.id);
+    };
+
+    // Topological sort with score-based ordering (matches iOS topologicalSortTasks)
+    const result: any[] = [];
+    const visited = new Set<string>();
+    const selectedTaskIds = new Set(tasks.map(t => t.id));
+
+    const visit = (task: any) => {
+      if (!task.id || visited.has(task.id)) return;
+      visited.add(task.id);
+
+      // Visit dependencies first, in score order (highest first)
+      for (const depId of getSortedDependencies(task)) {
+        // Only visit if this dependency is in our task list
+        if (selectedTaskIds.has(depId)) {
+          const depTask = taskById.get(depId);
+          if (depTask) {
+            visit(depTask);
+          }
+        }
+      }
+
+      result.push(task);
+    };
+
+    // Process tasks in AI score order (highest first)
+    // This ensures independent tasks are added in score order
+    const tasksSortedByScore = [...tasks].sort((a, b) => getOverallScore(b) - getOverallScore(a));
+
+    for (const task of tasksSortedByScore) {
+      visit(task);
+    }
+
+    return result;
   }
 
   /**
@@ -1261,10 +1383,19 @@ export class AiDDMCPServer {
         return task;
       });
 
-      // Sort by dependency order if requested (topological sort)
+      // Sort tasks - default is scoreWithDependencies for best "what should I work on next" results
       if (args.sortBy === 'dependencyOrder') {
+        // Pure topological sort by dependency order only
         tasks = this.sortTasksByDependencyOrder(tasks);
+      } else if (args.ignoreDependencies) {
+        // User explicitly wants to ignore dependencies - sort purely by score
+        tasks = this.sortTasksByScore(tasks, args.order === 'asc');
+      } else if (!args.sortBy || args.sortBy === 'score' || args.sortBy === 'scoreWithDependencies') {
+        // Default: Sort by AI score while respecting dependencies
+        // This ensures high-scoring tasks appear first, but their prerequisites come before them
+        tasks = this.sortTasksByScoreWithDependencies(tasks);
       }
+      // For createdAt, updatedAt, dueDate - backend already sorts these, no additional sort needed
 
       // Build structured task data for ChatGPT widgets
       // ChatGPT expects JSON-encoded data in the text field for proper widget rendering
