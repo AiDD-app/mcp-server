@@ -1690,7 +1690,9 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
       if (!usageCheck.allowed) return this.formatLimitReachedResponse(usageCheck);
 
       const { considerCurrentEnergy = true, timeOfDay = 'auto', waitForCompletion = false } = args;
-      const tasks = await this.backendClient.listTasks({});
+      // CRITICAL: Fetch ALL tasks (up to 10,000) for scoring, not just the default 100
+      // The backend defaults to limit=100, which was causing only a small subset to be scored
+      const tasks = await this.backendClient.listTasks({ limit: 10000 });
 
       if (!waitForCompletion) {
         const { jobId, taskCount } = await this.backendClient.startScoringJobAsync(tasks);
