@@ -211,7 +211,15 @@ export class E2EEncryptionManager {
         throw new Error(`Failed to fetch key: ${response.status}`);
       }
 
-      const wrappedKeyData = await response.json() as WrappedKeyData;
+      // Backend returns { success: true, wrappedKeyData: {...} }
+      const result = await response.json() as { success: boolean; wrappedKeyData: WrappedKeyData; tokenHashHint?: string };
+      const wrappedKeyData = result.wrappedKeyData;
+
+      if (!wrappedKeyData || !wrappedKeyData.salt || !wrappedKeyData.wrappedKey) {
+        console.log('[E2E] Invalid wrapped key data received from backend');
+        this.isEnabled = false;
+        return false;
+      }
 
       // Unwrap DEK locally
       this.dek = await this.unwrapKey(wrappedKeyData, password);

@@ -38,7 +38,7 @@ COPY favicon-32.png ./
 # Set environment
 ENV NODE_ENV=production
 ENV PORT=8080
-ENV BUILD_TIMESTAMP=20251224-filters-v4.5.19
+ENV BUILD_TIMESTAMP=20251225-e2e-fix-v4.5.20
 
 # Expose port
 EXPOSE 8080
