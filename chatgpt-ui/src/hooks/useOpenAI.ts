@@ -128,16 +128,68 @@ export function useTasks() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchTasks = useCallback(async (sortBy = 'score', limit = 100) => {
+  const fetchTasks = useCallback(async (
+    sortBy = 'score',
+    limit = 100,
+    filters?: {
+      category?: string;
+      tags?: string;
+      maxTimeMinutes?: number;
+      maxEnergy?: 'low' | 'medium' | 'high';
+      onlyAIScored?: boolean;
+      dueWithinDays?: number;
+      includeCompleted?: boolean;
+    }
+  ) => {
     setLoading(true);
     setError(null);
     try {
-      const rawResult = await callTool('list_tasks', { sortBy, limit });
+      const params: Record<string, any> = { sortBy, limit };
+      // Add filter parameters if provided
+      if (filters) {
+        if (filters.category) params.category = filters.category;
+        if (filters.tags) params.tags = filters.tags;
+        if (filters.maxTimeMinutes !== undefined) params.maxTimeMinutes = filters.maxTimeMinutes;
+        if (filters.maxEnergy) params.maxEnergy = filters.maxEnergy;
+        if (filters.onlyAIScored) params.onlyAIScored = filters.onlyAIScored;
+        if (filters.dueWithinDays !== undefined) params.dueWithinDays = filters.dueWithinDays;
+        if (filters.includeCompleted) params.includeCompleted = filters.includeCompleted;
+      }
+      console.log('[useTasks] Fetching tasks with params:', params);
+      const rawResult = await callTool('list_tasks', params);
+      console.log('[useTasks] Raw result received:', typeof rawResult, rawResult);
       const resultTasks = getTasksFromToolOutput(rawResult) || [];
       const fallbackTasks = resultTasks.length === 0 ? getTasksFromToolOutput(window.openai?.toolOutput) : null;
       setTasks(resultTasks.length > 0 ? resultTasks : fallbackTasks || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch tasks');
+    } catch (err: unknown) {
+      console.error('[useTasks] Error fetching tasks:', err);
+      // Extract detailed error message
+      let errorMessage = 'Failed to fetch tasks';
+      if (err instanceof Error) {
+        errorMessage = err.message;
+        // Also log the stack trace for debugging
+        console.error('[useTasks] Error stack:', err.stack);
+      } else if (typeof err === 'object' && err !== null) {
+        // Handle MCP error responses which may have different shapes
+        const errObj = err as Record<string, unknown>;
+        // Log the full error object for debugging
+        console.error('[useTasks] Full error object:', JSON.stringify(errObj, null, 2));
+        if (typeof errObj.message === 'string') {
+          errorMessage = errObj.message;
+        } else if (typeof errObj.error === 'string') {
+          errorMessage = errObj.error;
+        } else if (errObj.error && typeof errObj.error === 'object') {
+          const innerErr = errObj.error as Record<string, unknown>;
+          if (typeof innerErr.message === 'string') {
+            errorMessage = innerErr.message;
+          }
+        } else if (typeof errObj.name === 'string' && errObj.name === 'AbortError') {
+          errorMessage = 'Request timed out - backend may be slow or unreachable';
+        }
+      } else if (typeof err === 'string') {
+        errorMessage = err;
+      }
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

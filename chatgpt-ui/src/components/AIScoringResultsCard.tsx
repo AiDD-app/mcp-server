@@ -3,28 +3,27 @@
  *
  * Displays results from AI task scoring with insights,
  * recommendations, and score distribution visualization.
+ *
+ * Redesigned with modern dark theme and vibrant accents.
  */
 
 import React, { useEffect, useState } from 'react';
 import { useTasks, useAIJobs, useOpenAI } from '../hooks/useOpenAI';
-import type { Task, ScoringResult, AIJob } from '../types/openai';
+import type { Task, AIJob } from '../types/openai';
 import { cn } from '../utils/cn';
 import { getJobsFromToolOutput, getTasksFromToolOutput } from '../utils/toolOutput';
 import {
   Sparkles,
   TrendingUp,
-  TrendingDown,
-  BarChart3,
   RefreshCw,
   CheckCircle2,
   Clock,
   Zap,
-  Target,
-  Award,
   AlertCircle,
-  ChevronRight,
   Brain,
   Lightbulb,
+  Target,
+  AlertTriangle,
 } from 'lucide-react';
 import * as Progress from '@radix-ui/react-progress';
 import * as Tooltip from '@radix-ui/react-tooltip';
@@ -46,57 +45,65 @@ export function AIScoringResultsCard({
 
   const isDark = theme === 'dark';
 
-  // Use pre-populated toolOutput.tasks if available (from tool call that triggered this widget)
-  // Otherwise fall back to fetched tasks
+  // Use pre-populated toolOutput.tasks if available
   const preloadedTasks = getTasksFromToolOutput(toolOutput);
   const preloadedJobs = getJobsFromToolOutput(toolOutput);
   const tasks = preloadedTasks || fetchedTasks;
   const jobs = preloadedJobs || fetchedJobs;
 
   useEffect(() => {
-    // Only fetch if no pre-populated data from toolOutput
     if (!preloadedTasks || preloadedTasks.length === 0) {
-      fetchTasks('score', 100);
+      fetchTasks('score', 1000);  // Fetch up to 1000 tasks for comprehensive scoring display
     }
     if (!preloadedJobs || preloadedJobs.length === 0) {
       fetchJobs(true);
     }
   }, [fetchTasks, fetchJobs, preloadedTasks, preloadedJobs]);
 
-  // Find the most recent scoring job
   useEffect(() => {
     const scoringJobs = jobs.filter((j) => j.type === 'score_tasks');
     if (scoringJobs.length > 0) {
-      setLastScoringJob(scoringJobs[0]); // Assumes sorted by date desc
+      setLastScoringJob(scoringJobs[0]);
     }
   }, [jobs]);
 
-  // Poll for job status while scoring is in progress
   useEffect(() => {
     if (!lastScoringJob || lastScoringJob.status !== 'processing') return;
-
     const intervalId = setInterval(() => {
       fetchJobs(true);
     }, 3000);
-
     return () => clearInterval(intervalId);
   }, [lastScoringJob?.status, fetchJobs]);
 
-  // Refresh tasks when scoring job completes
   useEffect(() => {
     if (lastScoringJob?.status === 'completed') {
-      fetchTasks('score', 100);
+      setIsScoring(false);  // Reset scoring state when job completes
+      fetchTasks('score', 1000);  // Refetch all tasks after scoring completes
+    } else if (lastScoringJob?.status === 'failed') {
+      setIsScoring(false);
+      setScoringError(lastScoringJob.error || 'Scoring job failed');
     }
-  }, [lastScoringJob?.status, fetchTasks]);
+  }, [lastScoringJob?.status, lastScoringJob?.error, fetchTasks]);
+
+  const [scoringError, setScoringError] = useState<string | null>(null);
 
   const handleStartScoring = async () => {
     setIsScoring(true);
+    setScoringError(null);
     try {
-      await scoreTasks();
-      await fetchJobs();
-    } finally {
+      console.log('[AIScoringResultsCard] Starting AI scoring...');
+      const jobId = await scoreTasks();
+      console.log('[AIScoringResultsCard] Scoring job started:', jobId);
+      // Immediately fetch jobs to show progress
+      await fetchJobs(true);
+    } catch (error) {
+      console.error('[AIScoringResultsCard] Scoring failed:', error);
+      setScoringError(error instanceof Error ? error.message : 'Failed to start scoring');
+      // Keep isScoring false so user can retry
       setIsScoring(false);
     }
+    // Note: isScoring stays true until job completes or fails
+    // The job polling will update the UI
   };
 
   // Calculate scoring stats
@@ -110,7 +117,7 @@ export function AIScoringResultsCard({
     .slice(0, 3);
 
   const quickWins = scoredTasks.filter(
-    (t) => t.taskType === 'quick_win' && t.energyRequired === 'low'
+    (t) => t.taskType === 'quick_win' || (t.energyRequired === 'low' && (t.estimatedTime || 0) <= 15)
   );
 
   // Score distribution
@@ -123,107 +130,113 @@ export function AIScoringResultsCard({
   // Generate insights
   const insights = [];
 
-  if (quickWins.length >= 3) {
-    insights.push({
-      icon: Zap,
-      text: `${quickWins.length} quick wins available - great for low energy moments`,
-      color: 'text-green-500',
-    });
-  }
-
-  if (scoreDistribution.high > scoreDistribution.low) {
+  if (avgScore >= 50) {
     insights.push({
       icon: TrendingUp,
-      text: 'Your task list is well-prioritized',
-      color: 'text-blue-500',
+      title: 'Your task list is well-prioritized',
+      description: 'Your task list is well-prioritized to help with your productivity goals.',
+      color: 'text-blue-400',
+      bgColor: 'bg-blue-500/10',
     });
   }
 
-  const blockedTasks = tasks.filter((t) => t.dependsOnTaskIds && t.dependsOnTaskIds.length > 0);
-  if (blockedTasks.length > 3) {
+  const blockedTasks = tasks.filter((t) => t.dependsOnTaskIds && t.dependsOnTaskIds.length > 0 && !t.isCompleted);
+  if (blockedTasks.length > 0) {
     insights.push({
-      icon: AlertCircle,
-      text: `${blockedTasks.length} tasks are blocked by dependencies`,
-      color: 'text-yellow-500',
-    });
-  }
-
-  const highEnergyTasks = scoredTasks.filter((t) => t.energyRequired === 'high');
-  if (highEnergyTasks.length > 5) {
-    insights.push({
-      icon: Target,
-      text: 'Many high-energy tasks - schedule for peak hours',
-      color: 'text-purple-500',
+      icon: AlertTriangle,
+      title: `${blockedTasks.length} tasks are blocked by dependencies`,
+      description: `Alerts, and ${blockedTasks.length} tasks are blocked by dependencies.`,
+      color: 'text-yellow-400',
+      bgColor: 'bg-yellow-500/10',
     });
   }
 
   const isProcessing = lastScoringJob?.status === 'processing';
 
+  // Score color helper
+  const getScoreColor = (score: number) => {
+    if (score >= 70) return 'text-green-400';
+    if (score >= 40) return 'text-yellow-400';
+    return 'text-red-400';
+  };
+
+  const getScoreBgColor = (score: number) => {
+    if (score >= 70) return 'bg-green-500';
+    if (score >= 40) return 'bg-yellow-500';
+    return 'text-red-500';
+  };
+
   return (
     <Tooltip.Provider>
-      <div
-        className={cn(
-          'rounded-xl border shadow-sm overflow-hidden flex flex-col h-full',
-          isDark ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'
-        )}
-      >
+      <div className="min-h-full bg-[#0d1117] text-white">
         {/* Header */}
-        <div
-          className={cn(
-            'px-4 py-3 border-b flex items-center justify-between',
-            isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-gray-50'
-          )}
-        >
-          <div className="flex items-center gap-2">
-            <Brain className="w-5 h-5 text-purple-500" />
-            <h2 className={cn('font-semibold', isDark ? 'text-white' : 'text-gray-900')}>
-              AI Scoring Results
-            </h2>
+        <div className="px-6 py-4 border-b border-gray-800">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-cyan-400 font-bold text-lg tracking-wide mb-1">AIDD</div>
+              <h1 className="text-2xl font-bold text-white">AI Scoring Results</h1>
+            </div>
+            <button
+              onClick={handleStartScoring}
+              disabled={isScoring || isProcessing}
+              className={cn(
+                'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all',
+                'bg-purple-600 hover:bg-purple-700 text-white',
+                (isScoring || isProcessing) && 'opacity-50 cursor-not-allowed'
+              )}
+            >
+              <RefreshCw className={cn('w-4 h-4', (isScoring || isProcessing) && 'animate-spin')} />
+              Re-score
+            </button>
           </div>
-
-          <button
-            onClick={handleStartScoring}
-            disabled={isScoring || isProcessing}
-            className={cn(
-              'flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
-              'bg-purple-600 text-white hover:bg-purple-700',
-              (isScoring || isProcessing) && 'opacity-50 cursor-not-allowed'
-            )}
-          >
-            <RefreshCw
-              className={cn('w-4 h-4', (isScoring || isProcessing) && 'animate-spin')}
-            />
-            {isProcessing ? 'Scoring...' : 'Re-score'}
-          </button>
         </div>
 
         {/* Processing Status */}
+        {/* Error Message */}
+        {scoringError && (
+          <div className="px-6 py-4 bg-red-900/20 border-b border-gray-800">
+            <div className="flex items-center gap-2 text-sm text-red-400">
+              <AlertCircle className="w-4 h-4" />
+              <span>Scoring error: {scoringError}</span>
+              <button
+                onClick={() => setScoringError(null)}
+                className="ml-auto text-red-300 hover:text-red-200"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Scoring Started (waiting for job to appear) */}
+        {isScoring && !isProcessing && !scoringError && (
+          <div className="px-6 py-4 bg-purple-900/20 border-b border-gray-800">
+            <div className="flex items-center gap-2 text-sm text-purple-300">
+              <RefreshCw className="w-4 h-4 animate-spin" />
+              <span>Starting AI scoring job...</span>
+            </div>
+          </div>
+        )}
+
+        {/* Processing Progress */}
         {isProcessing && lastScoringJob && (
-          <div
-            className={cn(
-              'px-4 py-3 border-b',
-              isDark ? 'border-gray-700 bg-purple-900/20' : 'border-gray-200 bg-purple-50'
-            )}
-          >
+          <div className="px-6 py-4 bg-purple-900/20 border-b border-gray-800">
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-purple-500 animate-pulse" />
-                  <span className={isDark ? 'text-purple-300' : 'text-purple-700'}>
+                  <Sparkles className="w-4 h-4 text-purple-400 animate-pulse" />
+                  <span className="text-purple-300">
                     {lastScoringJob.progressMessage || 'AI is analyzing your tasks...'}
                   </span>
                 </div>
-                <span className={isDark ? 'text-purple-400' : 'text-purple-600'}>
+                <span className="text-purple-400">
                   {Math.round(lastScoringJob.progress * 100)}%
                 </span>
               </div>
               <Progress.Root
                 value={lastScoringJob.progress * 100}
                 max={100}
-                className={cn(
-                  'h-2 rounded-full overflow-hidden',
-                  isDark ? 'bg-gray-700' : 'bg-purple-200'
-                )}
+                className="h-2 rounded-full overflow-hidden bg-gray-700"
               >
                 <Progress.Indicator
                   className="h-full bg-purple-500 transition-all"
@@ -234,223 +247,142 @@ export function AIScoringResultsCard({
           </div>
         )}
 
-        {/* Stats Grid */}
-        <div className="p-4 flex-1 overflow-y-auto min-h-0">
-          <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="p-6 space-y-6">
+          {/* Stats Grid */}
+          <div className="grid grid-cols-3 gap-4">
             {/* Average Score */}
-            <div
-              className={cn(
-                'p-4 rounded-lg text-center',
-                isDark ? 'bg-gray-800' : 'bg-gray-100'
-              )}
-            >
-              <div
-                className={cn(
-                  'text-3xl font-bold',
-                  avgScore >= 60 ? 'text-green-500' : avgScore >= 40 ? 'text-yellow-500' : 'text-red-500'
-                )}
-              >
-                {Math.round(avgScore)}
+            <div className="bg-[#161b22] rounded-xl p-4 flex items-center gap-4">
+              <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
+                <Brain className="w-7 h-7 text-white" />
               </div>
-              <div className={cn('text-xs', isDark ? 'text-gray-400' : 'text-gray-500')}>
-                Avg Score
+              <div>
+                <div className="text-3xl font-bold text-white">{Math.round(avgScore)}</div>
+                <div className="text-sm text-gray-400">Avg Score</div>
               </div>
             </div>
 
             {/* Tasks Scored */}
-            <div
-              className={cn(
-                'p-4 rounded-lg text-center',
-                isDark ? 'bg-gray-800' : 'bg-gray-100'
-              )}
-            >
-              <div className={cn('text-3xl font-bold', isDark ? 'text-white' : 'text-gray-900')}>
-                {scoredTasks.length}
+            <div className="bg-[#161b22] rounded-xl p-4 flex items-center gap-4">
+              <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-teal-500 to-cyan-600 flex items-center justify-center">
+                <CheckCircle2 className="w-7 h-7 text-white" />
               </div>
-              <div className={cn('text-xs', isDark ? 'text-gray-400' : 'text-gray-500')}>
-                Tasks Scored
+              <div>
+                <div className="text-3xl font-bold text-white">{scoredTasks.length}</div>
+                <div className="text-sm text-gray-400">Tasks Scored</div>
               </div>
             </div>
 
             {/* Quick Wins */}
-            <div
-              className={cn(
-                'p-4 rounded-lg text-center',
-                isDark ? 'bg-gray-800' : 'bg-gray-100'
-              )}
-            >
-              <div className="text-3xl font-bold text-green-500">
-                {quickWins.length}
+            <div className="bg-[#161b22] rounded-xl p-4 flex items-center gap-4">
+              <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-yellow-500 to-orange-500 flex items-center justify-center">
+                <Zap className="w-7 h-7 text-white" />
               </div>
-              <div className={cn('text-xs', isDark ? 'text-gray-400' : 'text-gray-500')}>
-                Quick Wins
+              <div>
+                <div className="text-3xl font-bold text-white">{quickWins.length}</div>
+                <div className="text-sm text-gray-400">Quick Wins</div>
               </div>
             </div>
           </div>
 
           {/* Score Distribution */}
-          <div className="mb-6">
-            <h3
-              className={cn(
-                'text-sm font-medium mb-3 flex items-center gap-2',
-                isDark ? 'text-gray-300' : 'text-gray-700'
-              )}
-            >
-              <BarChart3 className="w-4 h-4" />
-              Score Distribution
-            </h3>
-
-            <div className="space-y-2">
-              <div className="flex items-center gap-3">
-                <span className={cn('text-xs w-16', isDark ? 'text-gray-400' : 'text-gray-500')}>
-                  High (70+)
-                </span>
-                <div className="flex-1">
-                  <Progress.Root
-                    value={scoreDistribution.high}
-                    max={scoredTasks.length || 1}
-                    className={cn('h-4 rounded-full overflow-hidden', isDark ? 'bg-gray-800' : 'bg-gray-200')}
-                  >
-                    <Progress.Indicator
-                      className="h-full bg-green-500 transition-all"
-                      style={{ width: `${(scoreDistribution.high / (scoredTasks.length || 1)) * 100}%` }}
-                    />
-                  </Progress.Root>
+          <div>
+            <h2 className="text-lg font-semibold text-white mb-4">Score Distribution</h2>
+            <div className="space-y-3">
+              {/* High */}
+              <div className="flex items-center gap-4">
+                <span className="text-sm text-gray-400 w-24">High (70+)</span>
+                <div className="flex-1 h-6 bg-gray-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-green-500 to-green-400 rounded-full transition-all"
+                    style={{ width: `${(scoreDistribution.high / (scoredTasks.length || 1)) * 100}%` }}
+                  />
                 </div>
-                <span className={cn('text-xs w-8 text-right', isDark ? 'text-gray-400' : 'text-gray-500')}>
-                  {scoreDistribution.high}
-                </span>
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-green-400" />
+                  <span className="w-8 h-8 rounded-full bg-green-500/20 text-green-400 flex items-center justify-center text-sm font-medium">
+                    {scoreDistribution.high}
+                  </span>
+                </div>
               </div>
 
-              <div className="flex items-center gap-3">
-                <span className={cn('text-xs w-16', isDark ? 'text-gray-400' : 'text-gray-500')}>
-                  Med (40-69)
-                </span>
-                <div className="flex-1">
-                  <Progress.Root
-                    value={scoreDistribution.medium}
-                    max={scoredTasks.length || 1}
-                    className={cn('h-4 rounded-full overflow-hidden', isDark ? 'bg-gray-800' : 'bg-gray-200')}
-                  >
-                    <Progress.Indicator
-                      className="h-full bg-yellow-500 transition-all"
-                      style={{ width: `${(scoreDistribution.medium / (scoredTasks.length || 1)) * 100}%` }}
-                    />
-                  </Progress.Root>
+              {/* Medium */}
+              <div className="flex items-center gap-4">
+                <span className="text-sm text-gray-400 w-24">Med (40-69)</span>
+                <div className="flex-1 h-6 bg-gray-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-yellow-500 to-yellow-400 rounded-full transition-all"
+                    style={{ width: `${(scoreDistribution.medium / (scoredTasks.length || 1)) * 100}%` }}
+                  />
                 </div>
-                <span className={cn('text-xs w-8 text-right', isDark ? 'text-gray-400' : 'text-gray-500')}>
-                  {scoreDistribution.medium}
-                </span>
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-yellow-400" />
+                  <span className="w-8 h-8 rounded-full bg-yellow-500/20 text-yellow-400 flex items-center justify-center text-sm font-medium">
+                    {scoreDistribution.medium}
+                  </span>
+                </div>
               </div>
 
-              <div className="flex items-center gap-3">
-                <span className={cn('text-xs w-16', isDark ? 'text-gray-400' : 'text-gray-500')}>
-                  Low (&lt;40)
-                </span>
-                <div className="flex-1">
-                  <Progress.Root
-                    value={scoreDistribution.low}
-                    max={scoredTasks.length || 1}
-                    className={cn('h-4 rounded-full overflow-hidden', isDark ? 'bg-gray-800' : 'bg-gray-200')}
-                  >
-                    <Progress.Indicator
-                      className="h-full bg-red-500 transition-all"
-                      style={{ width: `${(scoreDistribution.low / (scoredTasks.length || 1)) * 100}%` }}
-                    />
-                  </Progress.Root>
+              {/* Low */}
+              <div className="flex items-center gap-4">
+                <span className="text-sm text-gray-400 w-24">Low (&lt;40)</span>
+                <div className="flex-1 h-6 bg-gray-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-red-500 to-red-400 rounded-full transition-all"
+                    style={{ width: `${(scoreDistribution.low / (scoredTasks.length || 1)) * 100}%` }}
+                  />
                 </div>
-                <span className={cn('text-xs w-8 text-right', isDark ? 'text-gray-400' : 'text-gray-500')}>
-                  {scoreDistribution.low}
-                </span>
+                <div className="flex items-center gap-2">
+                  <Target className="w-4 h-4 text-red-400" />
+                  <span className="w-8 h-8 rounded-full bg-red-500/20 text-red-400 flex items-center justify-center text-sm font-medium">
+                    {scoreDistribution.low}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Top Tasks */}
+          {/* Top Priority Tasks */}
           {topTasks.length > 0 && (
-            <div className="mb-6">
-              <h3
-                className={cn(
-                  'text-sm font-medium mb-3 flex items-center gap-2',
-                  isDark ? 'text-gray-300' : 'text-gray-700'
-                )}
-              >
-                <Award className="w-4 h-4 text-yellow-500" />
-                Top Priority Tasks
-              </h3>
-
-              <div className="space-y-2">
-                {topTasks.map((task, index) => (
-                  <button
-                    key={task.id}
-                    onClick={() => onTaskSelect?.(task)}
-                    className={cn(
-                      'w-full p-3 rounded-lg border text-left flex items-center gap-3 transition-all',
-                      isDark
-                        ? 'border-gray-700 hover:border-purple-600 hover:bg-gray-800'
-                        : 'border-gray-200 hover:border-purple-400 hover:bg-gray-50'
-                    )}
-                  >
-                    <div
-                      className={cn(
-                        'w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0',
-                        index === 0
-                          ? 'bg-yellow-500 text-white'
-                          : index === 1
-                          ? 'bg-gray-400 text-white'
-                          : 'bg-orange-600 text-white'
-                      )}
+            <div>
+              <h2 className="text-lg font-semibold text-white mb-4">Top Priority Tasks</h2>
+              <div className="space-y-3">
+                {topTasks.map((task, index) => {
+                  const score = task.score || 0;
+                  return (
+                    <button
+                      key={task.id}
+                      onClick={() => onTaskSelect?.(task)}
+                      className="w-full bg-[#161b22] rounded-xl p-4 flex items-center gap-4 hover:bg-[#1c2128] transition-colors border border-transparent hover:border-purple-500/50"
                     >
-                      {index + 1}
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <p
+                      {/* Rank Badge */}
+                      <div
                         className={cn(
-                          'font-medium truncate',
-                          isDark ? 'text-white' : 'text-gray-900'
+                          'w-12 h-12 rounded-xl flex items-center justify-center font-bold text-lg text-white',
+                          index === 0
+                            ? 'bg-gradient-to-br from-purple-600 to-purple-700'
+                            : index === 1
+                            ? 'bg-gradient-to-br from-purple-500 to-purple-600'
+                            : 'bg-gradient-to-br from-purple-400 to-purple-500'
                         )}
                       >
-                        {task.title}
-                      </p>
-                      <div className="flex items-center gap-2 mt-1 text-xs">
-                        {task.estimatedTime && (
-                          <span className={isDark ? 'text-gray-400' : 'text-gray-500'}>
-                            <Clock className="w-3 h-3 inline mr-1" />
-                            {task.estimatedTime}m
-                          </span>
-                        )}
-                        {task.taskType === 'quick_win' && (
-                          <span className="text-green-500">
-                            <Zap className="w-3 h-3 inline mr-1" />
-                            Quick Win
-                          </span>
-                        )}
+                        {index + 1}.
                       </div>
-                    </div>
 
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={cn(
-                          'text-lg font-bold',
-                          (task.score || 0) >= 70
-                            ? 'text-green-500'
-                            : (task.score || 0) >= 40
-                            ? 'text-yellow-500'
-                            : 'text-red-500'
-                        )}
-                      >
-                        {Math.round(task.score || 0)}
-                      </span>
-                      <ChevronRight
-                        className={cn(
-                          'w-4 h-4',
-                          isDark ? 'text-gray-600' : 'text-gray-400'
-                        )}
-                      />
-                    </div>
-                  </button>
-                ))}
+                      {/* Task Title */}
+                      <div className="flex-1 text-left">
+                        <p className="font-medium text-white truncate">{task.title}</p>
+                      </div>
+
+                      {/* Score Badge */}
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className={cn('w-5 h-5', getScoreColor(score))} />
+                        <span className={cn('text-xl font-bold', getScoreColor(score))}>
+                          {Math.round(score)}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -458,33 +390,22 @@ export function AIScoringResultsCard({
           {/* AI Insights */}
           {showRecommendations && insights.length > 0 && (
             <div>
-              <h3
-                className={cn(
-                  'text-sm font-medium mb-3 flex items-center gap-2',
-                  isDark ? 'text-gray-300' : 'text-gray-700'
-                )}
-              >
-                <Lightbulb className="w-4 h-4 text-yellow-500" />
-                AI Insights
-              </h3>
-
-              <div className="space-y-2">
+              <h2 className="text-lg font-semibold text-white mb-4">AI Insights</h2>
+              <div className="grid grid-cols-2 gap-4">
                 {insights.map((insight, index) => {
                   const Icon = insight.icon;
                   return (
                     <div
                       key={index}
-                      className={cn(
-                        'p-3 rounded-lg flex items-center gap-3',
-                        isDark ? 'bg-gray-800' : 'bg-gray-100'
-                      )}
+                      className={cn('rounded-xl p-4', insight.bgColor)}
                     >
-                      <Icon className={cn('w-5 h-5 flex-shrink-0', insight.color)} />
-                      <span
-                        className={cn('text-sm', isDark ? 'text-gray-300' : 'text-gray-600')}
-                      >
-                        {insight.text}
-                      </span>
+                      <div className="flex items-start gap-3">
+                        <Icon className={cn('w-5 h-5 flex-shrink-0 mt-0.5', insight.color)} />
+                        <div>
+                          <p className={cn('font-medium', insight.color)}>{insight.title}</p>
+                          <p className="text-sm text-gray-400 mt-1">{insight.description}</p>
+                        </div>
+                      </div>
                     </div>
                   );
                 })}
@@ -494,31 +415,19 @@ export function AIScoringResultsCard({
 
           {/* Empty State */}
           {scoredTasks.length === 0 && !isProcessing && (
-            <div
-              className={cn(
-                'text-center py-8',
-                isDark ? 'text-gray-400' : 'text-gray-500'
-              )}
-            >
-              <Brain className="w-12 h-12 mx-auto mb-3 opacity-50" />
-              <p>No scored tasks yet</p>
-              <p className="text-sm mt-1">Click "Re-score" to analyze your tasks with AI</p>
+            <div className="text-center py-12">
+              <Brain className="w-16 h-16 mx-auto mb-4 text-gray-600" />
+              <p className="text-gray-400 text-lg">No scored tasks yet</p>
+              <p className="text-gray-500 text-sm mt-2">Click "Re-score" to analyze your tasks with AI</p>
             </div>
           )}
         </div>
 
-        {/* Last Updated */}
+        {/* Last Updated Footer */}
         {lastScoringJob && lastScoringJob.status === 'completed' && (
-          <div
-            className={cn(
-              'px-4 py-2 border-t text-xs flex items-center gap-2',
-              isDark ? 'border-gray-700 bg-gray-800 text-gray-400' : 'border-gray-200 bg-gray-50 text-gray-500'
-            )}
-          >
+          <div className="px-6 py-3 border-t border-gray-800 text-xs text-gray-500 flex items-center gap-2">
             <CheckCircle2 className="w-3 h-3 text-green-500" />
-            <span>
-              Last scored {new Date(lastScoringJob.updatedAt).toLocaleString()}
-            </span>
+            <span>Last scored {new Date(lastScoringJob.updatedAt).toLocaleString()}</span>
           </div>
         )}
       </div>

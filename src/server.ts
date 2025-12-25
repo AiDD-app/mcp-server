@@ -344,6 +344,45 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Debug endpoint to inspect resources structure (for CSP debugging)
+app.get('/debug/resources', (req, res) => {
+  // Import WIDGET_RESOURCES and WIDGET_CSP_CONFIG to show actual structure
+  const WIDGET_CSP_CONFIG = {
+    'openai/widgetCSP': {
+      connect_domains: [
+        'https://aidd-backend-prod-739193356129.us-central1.run.app',
+        'https://aidd-mcp-webconnector-739193356129.us-central1.run.app',
+        'https://mcp.aidd.app',
+      ],
+      resource_domains: [],
+      redirect_domains: [],
+      frame_domains: [],
+    },
+    'openai/widgetDomain': 'https://mcp.aidd.app',
+  };
+
+  const widgetResources = [
+    { uri: 'ui://widget/notes-list.html', name: 'Notes List', mimeType: 'text/html+skybridge' },
+    { uri: 'ui://widget/action-items.html', name: 'Action Items', mimeType: 'text/html+skybridge' },
+    { uri: 'ui://widget/task-dashboard.html', name: 'Task Dashboard', mimeType: 'text/html+skybridge' },
+    { uri: 'ui://widget/ai-scoring.html', name: 'AI Scoring', mimeType: 'text/html+skybridge' },
+  ].map(w => ({
+    uri: w.uri,
+    name: w.name,
+    mimeType: w.mimeType,
+    _meta: {
+      'openai/outputTemplate': w.uri,
+      'openai/widgetAccessible': true,
+      ...WIDGET_CSP_CONFIG,
+    },
+  }));
+
+  res.json({
+    description: 'This shows what resources/list would return',
+    resources: widgetResources,
+  });
+});
+
 // Icon endpoint - serve optimized PNG (64x64 for better UI display)
 app.get('/icon.png', (req, res) => {
   res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 1 day

@@ -1254,7 +1254,20 @@ export class AiDDBackendClient extends EventEmitter {
   // PAGINATION-AWARE LIST METHODS
   // These return total counts so callers know when to paginate
 
-  async listTasksWithPagination(options: { sortBy?: string; order?: string; limit?: number; offset?: number } = {}): Promise<PaginatedResponse<any>> {
+  async listTasksWithPagination(options: {
+    sortBy?: string;
+    order?: string;
+    limit?: number;
+    offset?: number;
+    // Filters
+    category?: string;
+    tags?: string;
+    maxTimeMinutes?: number;
+    maxEnergy?: string;
+    onlyAIScored?: boolean;
+    dueWithinDays?: number;
+    includeCompleted?: boolean;
+  } = {}): Promise<PaginatedResponse<any>> {
     if (!this.deviceToken) await this.authenticate();
     try {
       const limit = options.limit || 100;
@@ -1264,6 +1277,14 @@ export class AiDDBackendClient extends EventEmitter {
       if (options.order) params.append('order', options.order);
       params.append('limit', limit.toString());
       params.append('offset', offset.toString());
+      // Add filter parameters
+      if (options.category) params.append('category', options.category);
+      if (options.tags) params.append('tags', options.tags);
+      if (options.maxTimeMinutes !== undefined) params.append('maxTimeMinutes', options.maxTimeMinutes.toString());
+      if (options.maxEnergy) params.append('maxEnergy', options.maxEnergy);
+      if (options.onlyAIScored) params.append('onlyAIScored', 'true');
+      if (options.dueWithinDays !== undefined) params.append('dueWithinDays', options.dueWithinDays.toString());
+      if (options.includeCompleted) params.append('includeCompleted', 'true');
       const response = await this.fetchWithTimeout(`${this.baseUrl}/api/tasks?${params.toString()}`, {
         method: 'GET',
         headers: { 'Authorization': `Bearer ${this.deviceToken}`, 'Content-Type': 'application/json' },

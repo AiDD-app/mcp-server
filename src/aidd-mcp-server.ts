@@ -23,6 +23,23 @@ import { E2EEncryptionManager, getE2EManager } from './e2e-encryption-manager.js
 import { getAnalytics } from './analytics/ga4.js';
 import { CHATGPT_UI_WIDGETS_HTML, WIDGET_RESOURCES } from './chatgpt-ui-resources.js';
 
+// Widget CSP configuration for ChatGPT app submission
+// Must be included in every tool definition that has an outputTemplate
+const WIDGET_CSP_CONFIG = {
+  'openai/widgetCSP': {
+    connect_domains: [
+      'https://aidd-backend-prod-739193356129.us-central1.run.app',
+      'https://aidd-mcp-webconnector-739193356129.us-central1.run.app',
+      'https://mcp.aidd.app',
+    ],
+    resource_domains: [],
+    redirect_domains: [],
+    frame_domains: [],
+  },
+  // widgetDomain must be a full URL for ChatGPT app submission
+  'openai/widgetDomain': 'https://mcp.aidd.app',
+};
+
 export class AiDDMCPServer {
   private server: Server;
   private backendClient: AiDDBackendClient;
@@ -309,9 +326,16 @@ export class AiDDMCPServer {
       };
     });
 
-    this.server.setRequestHandler(ListResourcesRequestSchema, async () => ({
-      resources: this.getResources(),
-    }));
+    this.server.setRequestHandler(ListResourcesRequestSchema, async () => {
+      const resources = this.getResources();
+      // Log to verify _meta is included
+      console.log('📋 MCP Request: resources/list - returning', resources.length, 'resources');
+      const widgetResources = resources.filter(r => r.uri.startsWith('ui://widget'));
+      if (widgetResources.length > 0) {
+        console.log('📋 Widget resource sample:', JSON.stringify(widgetResources[0], null, 2));
+      }
+      return { resources };
+    });
 
     this.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
       const { uri } = request.params;
@@ -428,6 +452,8 @@ export class AiDDMCPServer {
         },
         _meta: {
           'openai/outputTemplate': 'ui://widget/notes-list.html',
+          'openai/widgetAccessible': true,  // Enable widget-initiated calls
+          ...WIDGET_CSP_CONFIG,
         },
       },
       {
@@ -470,6 +496,8 @@ export class AiDDMCPServer {
         },
         _meta: {
           'openai/outputTemplate': 'ui://widget/action-items.html',
+          'openai/widgetAccessible': true,  // Enable widget-initiated calls
+          ...WIDGET_CSP_CONFIG,
         },
       },
       {
@@ -526,10 +554,20 @@ export class AiDDMCPServer {
             limit: { type: 'number', description: 'Maximum number of tasks to return (default: 100)' },
             offset: { type: 'number', description: 'Number of tasks to skip for pagination (default: 0)' },
             ignoreDependencies: { type: 'boolean', description: 'When true, sort purely by score without respecting task dependencies. Default: false (dependencies are respected)' },
+            // Filters
+            category: { type: 'string', description: 'Filter by category (work/personal)' },
+            tags: { type: 'string', description: 'Filter by tags (comma-separated list)' },
+            maxTimeMinutes: { type: 'number', description: 'Filter to tasks with estimated time <= this value (in minutes)' },
+            maxEnergy: { type: 'string', enum: ['low', 'medium', 'high'], description: 'Filter to tasks with energy level <= this value' },
+            onlyAIScored: { type: 'boolean', description: 'Only show tasks that have been AI scored' },
+            dueWithinDays: { type: 'number', description: 'Filter to tasks due within this many days' },
+            includeCompleted: { type: 'boolean', description: 'Include completed tasks (default: false)' },
           },
         },
         _meta: {
           'openai/outputTemplate': 'ui://widget/task-dashboard.html',
+          'openai/widgetAccessible': true,  // Enable widget-initiated calls
+          ...WIDGET_CSP_CONFIG,
         },
       },
       {
@@ -553,7 +591,7 @@ export class AiDDMCPServer {
             description: { type: 'string', description: 'Description of the task (optional)' },
             estimatedTime: { type: 'number', description: 'Estimated time in minutes (default: 15)' },
             energyRequired: { type: 'string', enum: ['low', 'medium', 'high'], description: 'Energy level required (default: medium)' },
-            taskType: { type: 'string', enum: ['quick_win', 'focus_required', 'collaborative', 'creative', 'administrative'], description: 'Type of task (default: administrative)' },
+            taskType: { type: 'string', enum: ['quick_win', 'focus_required', 'collaborative', 'creative', 'administrative'], description: 'Type of task (optional - will be inferred from content if not specified)' },
             dueDate: { type: 'string', description: 'Due date in ISO format (optional)' },
             tags: { type: 'array', items: { type: 'string' }, description: 'Tags for the task (optional)' },
           },
@@ -575,6 +613,9 @@ export class AiDDMCPServer {
             skipAutoScoring: { type: 'boolean', description: 'Skip automatic AI scoring after conversion. Default false (scoring runs automatically for PREMIUM/PRO users).' },
           },
         },
+        _meta: {
+          'openai/widgetAccessible': true,  // Enable widget-initiated calls
+        },
       },
       {
         name: 'score_tasks',
@@ -590,6 +631,8 @@ export class AiDDMCPServer {
         },
         _meta: {
           'openai/outputTemplate': 'ui://widget/ai-scoring.html',
+          'openai/widgetAccessible': true,  // Enable widget-initiated calls
+          ...WIDGET_CSP_CONFIG,
         },
       },
       {
@@ -602,6 +645,9 @@ export class AiDDMCPServer {
             jobId: { type: 'string', description: 'Optional: Specific job ID to check. If not provided, lists all active jobs.' },
             includeCompleted: { type: 'boolean', description: 'Include completed jobs in the list (default: false)' },
           },
+        },
+        _meta: {
+          'openai/widgetAccessible': true,  // Enable widget-initiated calls
         },
       },
       {
@@ -678,6 +724,9 @@ export class AiDDMCPServer {
           },
           required: ['taskId'],
         },
+        _meta: {
+          'openai/widgetAccessible': true,  // Enable widget-initiated calls (for completing tasks)
+        },
       },
       {
         name: 'delete_tasks',
@@ -728,12 +777,29 @@ export class AiDDMCPServer {
       { uri: 'aidd://tasks', name: 'Tasks', description: 'All ADHD-optimized tasks from your AiDD account', mimeType: 'application/json' },
     ];
 
-    // Add ChatGPT UI widget resources (text/html+skybridge for ChatGPT widget rendering)
-    const widgetResources = WIDGET_RESOURCES.map(w => ({
+    // Add missing notes-list.html resource (used by list_notes tool)
+    const allWidgetResources = [
+      ...WIDGET_RESOURCES,
+      {
+        uri: 'ui://widget/notes-list.html',
+        name: 'Notes List',
+        description: 'Browse and manage notes from your AiDD account',
+        mimeType: 'text/html+skybridge' as const,
+      },
+    ];
+
+    // Add ChatGPT UI widget resources with _meta for CSP (app submission requirement)
+    const widgetResources = allWidgetResources.map(w => ({
       uri: w.uri,
       name: w.name,
       description: w.description,
       mimeType: w.mimeType,
+      // Include CSP metadata in _meta as required by ChatGPT Apps SDK
+      _meta: {
+        'openai/outputTemplate': w.uri,
+        'openai/widgetAccessible': true,
+        ...WIDGET_CSP_CONFIG,
+      },
     }));
 
     return [...dataResources, ...widgetResources];
@@ -1348,10 +1414,13 @@ export class AiDDMCPServer {
 
   private async handleListTasks(args: any) {
     try {
+      console.log('[MCP] handleListTasks called with args:', JSON.stringify(args));
       await this.ensureE2EInitialized();
 
       // Use pagination-aware method to get total count
+      console.log('[MCP] Calling listTasksWithPagination...');
       const paginatedResult = await this.backendClient.listTasksWithPagination(args);
+      console.log('[MCP] listTasksWithPagination returned', paginatedResult.items.length, 'tasks');
       let tasks = paginatedResult.items;
       const { total, limit, offset, hasMore } = paginatedResult;
 
@@ -1472,7 +1541,11 @@ export class AiDDMCPServer {
         content: [{ type: 'text', text: `📋 **Tasks** (showing ${tasks.length} of ${total} total)\n\n${tasksList}${paginationInfo}\n\n*Use the IDs above with \`delete_tasks\` to remove tasks.*` } as TextContent],
       };
     } catch (error) {
-      return { content: [{ type: 'text', text: `❌ Error listing tasks: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[MCP] handleListTasks error:', errorMessage, error);
+      // Throw the error so the MCP framework converts it to an error response
+      // This allows the frontend to properly detect and display the error
+      throw new Error(`Failed to list tasks: ${errorMessage}`);
     }
   }
 
@@ -1504,8 +1577,12 @@ export class AiDDMCPServer {
     try {
       await this.ensureE2EInitialized();
 
-      const { title, description, estimatedTime = 15, energyRequired = 'medium', taskType = 'administrative', dueDate, tags = [] } = args;
-      const taskData = { actionItemId: '', taskOrder: 1, title, description: description || '', estimatedTime, energyRequired, tags, dependsOnTaskOrders: [], taskType, dueDate };
+      const { title, description, estimatedTime = 15, energyRequired = 'medium', taskType, dueDate, tags = [] } = args;
+      // Only include taskType in taskData if explicitly provided - don't default to 'administrative'
+      const taskData: Record<string, any> = { actionItemId: '', taskOrder: 1, title, description: description || '', estimatedTime, energyRequired, tags, dependsOnTaskOrders: [], dueDate };
+      if (taskType) {
+        taskData.taskType = taskType;
+      }
 
       // Encrypt task data if E2E is enabled
       const dataToSend = this.e2eEnabled ? this.encryptTaskForSync(taskData) : taskData;
@@ -1513,7 +1590,7 @@ export class AiDDMCPServer {
       const createdTask = await this.backendClient.createTask(dataToSend);
 
       // Use original args for display since we know the plaintext
-      const response = `✅ **Task Created**\n\n**Title:** ${title}\n**ID:** ${createdTask.id}\n**Estimated Time:** ${estimatedTime} minutes\n**Energy Required:** ${energyRequired}\n**Task Type:** ${taskType}\n${dueDate ? `**Due Date:** ${dueDate}` : ''}\n${tags && tags.length > 0 ? `**Tags:** ${tags.join(', ')}` : ''}\n${this.e2eEnabled ? '🔐 **E2E Encrypted**' : ''}\n\nThe task has been saved to your AiDD account.`;
+      const response = `✅ **Task Created**\n\n**Title:** ${title}\n**ID:** ${createdTask.id}\n**Estimated Time:** ${estimatedTime} minutes\n**Energy Required:** ${energyRequired}\n${taskType ? `**Task Type:** ${taskType}\n` : ''}${dueDate ? `**Due Date:** ${dueDate}` : ''}\n${tags && tags.length > 0 ? `**Tags:** ${tags.join(', ')}` : ''}\n${this.e2eEnabled ? '🔐 **E2E Encrypted**' : ''}\n\nThe task has been saved to your AiDD account.`;
       return { content: [{ type: 'text', text: response } as TextContent] };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error creating task: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
@@ -2763,6 +2840,12 @@ list_tasks:
           mimeType: 'text/html+skybridge',
           text: CHATGPT_UI_WIDGETS_HTML,
         }],
+        _meta: {
+          // Use shared CSP config for consistency with resources/list
+          ...WIDGET_CSP_CONFIG,
+          'openai/widgetDescription': 'AiDD productivity dashboard for ADHD-optimized task management, AI scoring, and action item tracking',
+          'openai/widgetPrefersBorder': true,  // Visually frame the widget in conversation
+        },
       };
     }
 
