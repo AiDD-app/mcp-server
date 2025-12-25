@@ -2834,18 +2834,21 @@ list_tasks:
     if (uri.startsWith('ui://widget/')) {
       // All widget URIs serve the same bundled React app
       // The app routes internally based on the tool that triggered it
+      const widgetMeta = {
+        // Use shared CSP config for consistency with resources/list
+        ...WIDGET_CSP_CONFIG,
+        'openai/widgetDescription': 'AiDD productivity dashboard for ADHD-optimized task management, AI scoring, and action item tracking',
+        'openai/widgetPrefersBorder': true,  // Visually frame the widget in conversation
+      };
+
       return {
         contents: [{
           uri,
           mimeType: 'text/html+skybridge',
           text: CHATGPT_UI_WIDGETS_HTML,
+          _meta: widgetMeta,
         }],
-        _meta: {
-          // Use shared CSP config for consistency with resources/list
-          ...WIDGET_CSP_CONFIG,
-          'openai/widgetDescription': 'AiDD productivity dashboard for ADHD-optimized task management, AI scoring, and action item tracking',
-          'openai/widgetPrefersBorder': true,  // Visually frame the widget in conversation
-        },
+        _meta: widgetMeta,
       };
     }
 
