@@ -42,7 +42,7 @@ import * as Checkbox from '@radix-ui/react-checkbox';
 interface TaskFilters {
   category?: string;
   maxEnergy?: 'low' | 'medium' | 'high';
-  maxTimeMinutes?: number;
+  timeBudgetMinutes?: number;
   onlyAIScored?: boolean;
   includeCompleted?: boolean;
 }
@@ -53,9 +53,9 @@ interface TaskPriorityDashboardProps {
   showCompleted?: boolean;
 }
 
-// Circular Progress Component
-function CircularProgress({ score, size = 64 }: { score: number; size?: number }) {
-  const strokeWidth = 6;
+// Circular Progress Component - responsive sizing for mobile
+function CircularProgress({ score, size = 48, className }: { score: number; size?: number; className?: string }) {
+  const strokeWidth = 5;
   const radius = (size - strokeWidth) / 2;
   const circumference = radius * 2 * Math.PI;
   const offset = circumference - (score / 100) * circumference;
@@ -67,7 +67,7 @@ function CircularProgress({ score, size = 64 }: { score: number; size?: number }
   };
 
   return (
-    <div className="relative" style={{ width: size, height: size }}>
+    <div className={cn("relative flex-shrink-0", className)} style={{ width: size, height: size }}>
       <svg width={size} height={size} className="transform -rotate-90">
         {/* Background circle */}
         <circle
@@ -93,7 +93,7 @@ function CircularProgress({ score, size = 64 }: { score: number; size?: number }
         />
       </svg>
       <div className="absolute inset-0 flex items-center justify-center">
-        <span className="text-lg font-bold text-white">{Math.round(score)}</span>
+        <span className="text-sm font-bold text-white">{Math.round(score)}</span>
       </div>
     </div>
   );
@@ -137,13 +137,16 @@ export function TaskPriorityDashboard({
   // This prevents race conditions from double-fetching
   const updateFilter = <K extends keyof TaskFilters>(key: K, value: TaskFilters[K]) => {
     const newFilters = { ...filters, [key]: value };
+    console.log('[TaskPriorityDashboard] updateFilter:', key, '=', value, 'newFilters:', newFilters);
     setFilters(newFilters);
     setHasAppliedFilters(true);
   };
 
   // When filters change, refetch tasks (single source of truth)
   useEffect(() => {
+    console.log('[TaskPriorityDashboard] Filters effect triggered, hasAppliedFilters:', hasAppliedFilters, 'filters:', filters);
     if (hasAppliedFilters) {
+      console.log('[TaskPriorityDashboard] Calling fetchTasks with filters:', filters);
       fetchTasks('score', maxTasks, filters);
     }
   }, [filters, hasAppliedFilters, fetchTasks, maxTasks]);
@@ -176,8 +179,10 @@ export function TaskPriorityDashboard({
     ? tasks
     : tasks.filter((t) => !t.isCompleted);
 
-  const sortedTasks = [...filteredTasks].sort((a, b) => (b.score || 0) - (a.score || 0));
-  const topTasks = sortedTasks.slice(0, maxTasks);
+  // Trust the server's scoreWithDependencies ordering - don't re-sort client-side
+  // This ensures widget matches the text response from ChatGPT
+  // Don't limit the number of tasks shown - let the server control this
+  const topTasks = filteredTasks;
 
   const [scoringError, setScoringError] = useState<string | null>(null);
 
@@ -220,17 +225,6 @@ export function TaskPriorityDashboard({
       default:
         return <Battery className="w-4 h-4 text-gray-500" />;
     }
-  };
-
-  const getTaskTypeLabel = (type?: string) => {
-    const labels: Record<string, { label: string; color: string }> = {
-      quick_win: { label: '⚡ Quick Win', color: 'bg-green-500/20 text-green-400' },
-      focus_required: { label: '🎯 Focus', color: 'bg-purple-500/20 text-purple-400' },
-      collaborative: { label: '👥 Collab', color: 'bg-blue-500/20 text-blue-400' },
-      creative: { label: '✨ Creative', color: 'bg-pink-500/20 text-pink-400' },
-      administrative: { label: '📋 Admin', color: 'bg-gray-500/20 text-gray-400' },
-    };
-    return labels[type || 'administrative'] || labels.administrative;
   };
 
   return (
@@ -331,10 +325,10 @@ export function TaskPriorityDashboard({
               </div>
 
               <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-gray-400">Max Time</label>
+                <label className="text-xs font-medium text-gray-400">Time Budget</label>
                 <select
-                  value={filters.maxTimeMinutes?.toString() || ''}
-                  onChange={(e) => updateFilter('maxTimeMinutes', e.target.value ? parseInt(e.target.value) : undefined)}
+                  value={filters.timeBudgetMinutes?.toString() || ''}
+                  onChange={(e) => updateFilter('timeBudgetMinutes', e.target.value ? parseInt(e.target.value) : undefined)}
                   className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm min-w-[120px]"
                 >
                   <option value="">Any</option>
@@ -415,7 +409,6 @@ export function TaskPriorityDashboard({
           ) : (
             <div className="space-y-4">
               {topTasks.map((task, index) => {
-                const typeInfo = getTaskTypeLabel(task.taskType);
                 const score = task.score || 0;
                 const isExpanded = expandedTaskId === task.id;
 
@@ -429,70 +422,113 @@ export function TaskPriorityDashboard({
                     )}
                   >
                     <div
-                      className="p-4 cursor-pointer"
+                      className="p-3 cursor-pointer"
                       onClick={() => onTaskSelect?.(task)}
                     >
-                      <div className="flex items-center gap-4">
-                        {/* Circular Score */}
-                        <CircularProgress score={score} size={64} />
+                      <div className="flex items-start gap-3">
+                        {/* Circular Score - smaller on mobile */}
+                        <CircularProgress score={score} size={48} />
 
-                        {/* Task Content */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-2">
+                        {/* Task Content - takes remaining space */}
+                        <div className="flex-1 min-w-0 overflow-hidden">
+                          <div className="flex items-center gap-2 mb-1">
                             <Checkbox.Root
                               checked={task.isCompleted}
                               onClick={(e) => handleToggleComplete(task, e)}
                               className={cn(
-                                'w-5 h-5 rounded border flex items-center justify-center',
+                                'w-4 h-4 rounded border flex items-center justify-center flex-shrink-0',
                                 'border-gray-600',
                                 task.isCompleted && 'bg-green-500 border-green-500'
                               )}
                             >
                               <Checkbox.Indicator>
-                                <CheckCircle2 className="w-4 h-4 text-white" />
+                                <CheckCircle2 className="w-3 h-3 text-white" />
                               </Checkbox.Indicator>
                             </Checkbox.Root>
 
+                            {/* Title with better truncation for mobile */}
                             <h3 className={cn(
-                              'font-semibold text-white truncate',
-                              task.isCompleted && 'line-through'
+                              'font-semibold text-white text-sm leading-tight',
+                              'overflow-hidden text-ellipsis',
+                              'line-clamp-2',
+                              task.isCompleted && 'line-through opacity-60'
                             )}>
                               {task.title}
                             </h3>
                           </div>
 
-                          {/* Meta info */}
-                          <div className="flex items-center gap-3 text-xs flex-wrap">
-                            {/* Only show task type if it's NOT the default 'administrative' */}
-                            {task.taskType && task.taskType !== 'administrative' && (
-                              <span className={cn('px-2 py-1 rounded-lg', typeInfo.color)}>
-                                {typeInfo.label}
-                              </span>
-                            )}
-
+                          {/* Meta info - compact for mobile */}
+                          <div className="flex items-center gap-2 text-xs flex-wrap mt-1">
                             <Tooltip.Root>
                               <Tooltip.Trigger asChild>
-                                <span className="flex items-center gap-1 text-gray-400">
+                                <span className="flex items-center gap-0.5 text-gray-400">
                                   {getEnergyIcon(task.energyRequired)}
                                 </span>
                               </Tooltip.Trigger>
                               <Tooltip.Content className="px-2 py-1 rounded text-xs bg-gray-700 text-white capitalize">
-                                {task.energyRequired || 'Unknown'} energy
+                                {task.energyRequired || 'Medium'} energy
                               </Tooltip.Content>
                             </Tooltip.Root>
 
-                            {task.estimatedTime && (
-                              <span className="flex items-center gap-1 text-gray-400">
-                                <Clock className="w-3.5 h-3.5" />
-                                {task.estimatedTime}m
+                            <span className="flex items-center gap-0.5 text-gray-400 text-[11px]">
+                              <Clock className="w-3 h-3" />
+                              {task.estimatedTime ? `${task.estimatedTime}m` : '?m'}
+                            </span>
+
+                            {task.category && (
+                              <span className={cn(
+                                'px-1.5 py-0.5 rounded text-[10px]',
+                                task.category === 'work'
+                                  ? 'bg-blue-500/20 text-blue-400'
+                                  : 'bg-green-500/20 text-green-400'
+                              )}>
+                                {task.category === 'work' ? '💼' : '🏠'} {task.category}
                               </span>
                             )}
 
-                            {task.dependsOnTaskIds && task.dependsOnTaskIds.length > 0 && (
+                            {task.dependencyTasks && task.dependencyTasks.length > 0 && (
                               <Tooltip.Root>
                                 <Tooltip.Trigger asChild>
-                                  <span className="flex items-center gap-1 text-yellow-400">
-                                    <Link2 className="w-3.5 h-3.5" />
+                                  <span className="flex items-center gap-0.5 text-yellow-400 text-[11px]">
+                                    <Link2 className="w-3 h-3" />
+                                    {task.dependencyTasks.length}
+                                  </span>
+                                </Tooltip.Trigger>
+                                <Tooltip.Content className="px-3 py-2 rounded text-xs bg-gray-800 text-white max-w-xs">
+                                  <div className="font-medium mb-1">Depends on {task.dependencyTasks.length} task(s):</div>
+                                  <div className="space-y-1">
+                                    {task.dependencyTasks.slice(0, 3).map((dep, i) => (
+                                      <div key={i} className="flex items-start gap-1">
+                                        {dep.isCompleted ? (
+                                          <CheckCircle2 className="w-3 h-3 text-green-400 mt-0.5 flex-shrink-0" />
+                                        ) : (
+                                          <Circle className="w-3 h-3 text-yellow-400 mt-0.5 flex-shrink-0" />
+                                        )}
+                                        <div>
+                                          <span className={dep.isCompleted ? "text-green-300" : "text-yellow-300"}>
+                                            {dep.title}
+                                          </span>
+                                          {dep.sourceActionItem && (
+                                            <div className="text-purple-400 text-[10px]">
+                                              ← {dep.sourceActionItem.title}
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                    {task.dependencyTasks.length > 3 && (
+                                      <div className="text-gray-500">...and {task.dependencyTasks.length - 3} more</div>
+                                    )}
+                                  </div>
+                                </Tooltip.Content>
+                              </Tooltip.Root>
+                            )}
+                            {/* Fallback for old data without dependencyTasks */}
+                            {!task.dependencyTasks?.length && task.dependsOnTaskIds && task.dependsOnTaskIds.length > 0 && (
+                              <Tooltip.Root>
+                                <Tooltip.Trigger asChild>
+                                  <span className="flex items-center gap-0.5 text-yellow-400 text-[11px]">
+                                    <Link2 className="w-3 h-3" />
                                     {task.dependsOnTaskIds.length}
                                   </span>
                                 </Tooltip.Trigger>
@@ -503,22 +539,16 @@ export function TaskPriorityDashboard({
                             )}
 
                             {task.sourceActionItem && (
-                              <Tooltip.Root>
-                                <Tooltip.Trigger asChild>
-                                  <span className="flex items-center gap-1 text-purple-400">
-                                    <FileText className="w-3.5 h-3.5" />
-                                  </span>
-                                </Tooltip.Trigger>
-                                <Tooltip.Content className="px-2 py-1 rounded text-xs bg-gray-700 text-white max-w-48">
-                                  Derived from: "{task.sourceActionItem.title}"
-                                </Tooltip.Content>
-                              </Tooltip.Root>
+                              <span className="flex items-center gap-1 text-purple-400 text-[11px] truncate max-w-32">
+                                <FileText className="w-3 h-3 flex-shrink-0" />
+                                <span className="truncate">{task.sourceActionItem.title}</span>
+                              </span>
                             )}
                           </div>
 
                           {/* Score Progress Bar */}
-                          <div className="mt-3">
-                            <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                          <div className="mt-2">
+                            <div className="h-1 bg-gray-800 rounded-full overflow-hidden">
                               <div
                                 className={cn(
                                   'h-full rounded-full transition-all',
@@ -530,18 +560,8 @@ export function TaskPriorityDashboard({
                           </div>
                         </div>
 
-                        {/* Score Display */}
-                        <div className="text-right">
-                          <span className={cn(
-                            'text-2xl font-bold',
-                            score >= 70 ? 'text-green-400' : score >= 40 ? 'text-yellow-400' : 'text-red-400'
-                          )}>
-                            {Math.round(score)}
-                          </span>
-                        </div>
-
-                        {/* Quick Actions */}
-                        <div className="flex items-center gap-1">
+                        {/* Quick Actions - compact, no duplicate score display */}
+                        <div className="flex items-center gap-1 flex-shrink-0">
                           {!task.isCompleted && (
                             <Tooltip.Root>
                               <Tooltip.Trigger asChild>
@@ -574,8 +594,8 @@ export function TaskPriorityDashboard({
 
                     {/* Expanded Details */}
                     {isExpanded && (
-                      <div className="px-4 pb-4 pt-2 border-t border-gray-800 bg-[#0d1117]/50">
-                        <div className="pl-[80px]">
+                      <div className="px-3 pb-3 pt-2 border-t border-gray-800 bg-[#0d1117]/50">
+                        <div className="pl-[60px]">
                           {/* Description */}
                           {task.description && (
                             <p className="text-sm text-gray-300 mb-4">{task.description}</p>
@@ -611,6 +631,54 @@ export function TaskPriorityDashboard({
                                   Priority: {task.sourceActionItem.priority}
                                 </p>
                               )}
+                            </div>
+                          )}
+
+                          {/* Dependencies with Source Action Items */}
+                          {task.dependencyTasks && task.dependencyTasks.length > 0 && (
+                            <div className="mb-4">
+                              <div className="flex items-center gap-2 mb-2 text-xs font-medium text-yellow-400">
+                                <Link2 className="w-3.5 h-3.5" />
+                                Depends on {task.dependencyTasks.length} task(s):
+                              </div>
+                              <div className="space-y-2">
+                                {task.dependencyTasks.map((depTask, idx) => (
+                                  <div
+                                    key={depTask.id || idx}
+                                    className={cn(
+                                      "p-2 rounded-lg border",
+                                      depTask.isCompleted
+                                        ? "bg-green-500/10 border-green-500/30"
+                                        : "bg-yellow-500/10 border-yellow-500/30"
+                                    )}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      {depTask.isCompleted ? (
+                                        <CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0" />
+                                      ) : (
+                                        <Circle className="w-4 h-4 text-yellow-400 flex-shrink-0" />
+                                      )}
+                                      <span className={cn(
+                                        "text-sm",
+                                        depTask.isCompleted ? "text-green-300 line-through" : "text-yellow-300"
+                                      )}>
+                                        {depTask.title}
+                                      </span>
+                                      {depTask.estimatedTime && (
+                                        <span className="text-xs text-gray-500 ml-auto">
+                                          ~{depTask.estimatedTime}m
+                                        </span>
+                                      )}
+                                    </div>
+                                    {depTask.sourceActionItem && (
+                                      <div className="flex items-center gap-1 mt-1 ml-6 text-purple-400 text-xs">
+                                        <FileText className="w-3 h-3" />
+                                        <span className="truncate">{depTask.sourceActionItem.title}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           )}
 

@@ -117,7 +117,7 @@ export function AIScoringResultsCard({
     .slice(0, 3);
 
   const quickWins = scoredTasks.filter(
-    (t) => t.taskType === 'quick_win' || (t.energyRequired === 'low' && (t.estimatedTime || 0) <= 15)
+    (t) => t.energyRequired === 'low' && (t.estimatedTime || 15) <= 15
   );
 
   // Score distribution

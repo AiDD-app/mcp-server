@@ -149,8 +149,9 @@ export function ActionItemExtractionPreview({
 
   const getConfidenceColor = (confidence?: number) => {
     if (!confidence) return 'text-gray-400';
-    if (confidence >= 0.8) return 'text-green-500';
-    if (confidence >= 0.5) return 'text-yellow-500';
+    // Confidence comes from backend already as 0-100 scale
+    if (confidence >= 80) return 'text-green-500';
+    if (confidence >= 50) return 'text-yellow-500';
     return 'text-red-500';
   };
 
@@ -470,7 +471,8 @@ export function ActionItemExtractionPreview({
                                         getConfidenceColor(item.confidence)
                                       )}
                                     >
-                                      {Math.round(item.confidence * 100)}% conf
+                                      {/* Confidence is already 0-100 from backend, don't multiply again */}
+                                      {Math.round(item.confidence)}% conf
                                     </span>
                                   </Tooltip.Trigger>
                                   <Tooltip.Content

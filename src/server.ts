@@ -436,6 +436,7 @@ app.get('/app-metadata', (req, res) => {
     version: '4.4.0',
     description: 'ADHD-optimized productivity platform with AI-powered task management, action item extraction, and smart prioritization.',
     long_description: 'AiDD helps people with ADHD manage tasks more effectively by breaking down overwhelming projects into manageable pieces. Features include: AI-powered action item extraction from notes, ADHD-optimized task breakdown with time estimates and energy requirements, smart task prioritization that factors in urgency, importance, and your current energy level, and notes management with full-text search.',
+    homepage_url: 'https://web.aidd.app',
     icon_url: `${BASE_URL}/icon.png`,
     logo_url: `${BASE_URL}/icon.png`,
     categories: ['productivity', 'task-management', 'ai-assistant', 'adhd', 'organization'],
@@ -487,14 +488,23 @@ app.head('/', (req, res) => {
   res.status(200).end();
 });
 
-// Root endpoint
+// Root endpoint - redirect browser users to web.aidd.app, serve JSON for API clients
 app.get('/', (req, res) => {
+  // Check if request is from a browser (Accept header includes text/html)
+  const acceptHeader = req.headers.accept || '';
+  if (acceptHeader.includes('text/html') && !acceptHeader.includes('application/json')) {
+    // Browser request - redirect to web app
+    return res.redirect(302, 'https://web.aidd.app');
+  }
+
+  // API/MCP client request - serve JSON
   res.setHeader('X-MCP-Version', '2024-11-05');
   res.setHeader('X-MCP-Transport', 'sse');
   res.json({
     name: 'AiDD MCP Web Connector',
     version: '4.4.0',
     description: 'ADHD-optimized productivity platform with AI-powered task management',
+    homepage_url: 'https://web.aidd.app',
     icon: `${BASE_URL}/icon.png`,
     platforms: ['chatgpt', 'claude', 'web', 'ios'],
     endpoints: {

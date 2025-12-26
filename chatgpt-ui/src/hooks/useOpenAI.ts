@@ -135,6 +135,7 @@ export function useTasks() {
       category?: string;
       tags?: string;
       maxTimeMinutes?: number;
+      timeBudgetMinutes?: number;
       maxEnergy?: 'low' | 'medium' | 'high';
       onlyAIScored?: boolean;
       dueWithinDays?: number;
@@ -150,6 +151,7 @@ export function useTasks() {
         if (filters.category) params.category = filters.category;
         if (filters.tags) params.tags = filters.tags;
         if (filters.maxTimeMinutes !== undefined) params.maxTimeMinutes = filters.maxTimeMinutes;
+        if (filters.timeBudgetMinutes !== undefined) params.timeBudgetMinutes = filters.timeBudgetMinutes;
         if (filters.maxEnergy) params.maxEnergy = filters.maxEnergy;
         if (filters.onlyAIScored) params.onlyAIScored = filters.onlyAIScored;
         if (filters.dueWithinDays !== undefined) params.dueWithinDays = filters.dueWithinDays;

@@ -116,7 +116,7 @@ interface SourceActionItem {
   category?: string;
 }
 
-interface BackendTask extends Omit<Task, 'score' | 'dependsOnTaskIds'> {
+interface BackendTask extends Omit<Task, 'score' | 'dependsOnTaskIds' | 'estimatedTime'> {
   overallScore?: number;
   urgencyScore?: number;
   impactScore?: number;
@@ -125,11 +125,23 @@ interface BackendTask extends Omit<Task, 'score' | 'dependsOnTaskIds'> {
   sourceActionItem?: SourceActionItem;
   score?: number;
   dependsOnTaskIds?: string[];
+  // Backend may return either or both
+  estimatedTime?: number; // in minutes
+  estimatedDuration?: number; // in seconds
 }
 
 export const normalizeTasks = (tasks: BackendTask[]): Task[] => {
   return tasks.map((task) => {
     const normalizedEnergy = normalizeEnergyRequired(task.energyRequired);
+
+    // Normalize estimatedTime: prefer minutes, fallback to seconds/60
+    let normalizedEstimatedTime: number | undefined;
+    if (task.estimatedTime && task.estimatedTime > 0) {
+      normalizedEstimatedTime = task.estimatedTime;
+    } else if (task.estimatedDuration && task.estimatedDuration > 0) {
+      // estimatedDuration is in seconds, convert to minutes
+      normalizedEstimatedTime = Math.round(task.estimatedDuration / 60);
+    }
 
     // Map backend field names to frontend field names
     const normalizedTask: Task = {
@@ -139,6 +151,8 @@ export const normalizeTasks = (tasks: BackendTask[]): Task[] => {
       // Use dependencies if dependsOnTaskIds is not present
       dependsOnTaskIds: task.dependsOnTaskIds ?? task.dependencies ?? [],
       energyRequired: normalizedEnergy,
+      // Normalize estimatedTime from either field
+      estimatedTime: normalizedEstimatedTime,
       // Preserve sourceActionItem for display (extend Task type if needed)
       ...(task.sourceActionItem && { sourceActionItem: task.sourceActionItem }),
     };

@@ -32,16 +32,7 @@ interface QuickCaptureFormProps {
   defaultExpanded?: boolean;
 }
 
-type TaskType = 'quick_win' | 'focus_required' | 'collaborative' | 'creative' | 'administrative';
 type EnergyLevel = 'low' | 'medium' | 'high';
-
-const TASK_TYPES: { value: TaskType; label: string; emoji: string }[] = [
-  { value: 'quick_win', label: 'Quick Win', emoji: '⚡' },
-  { value: 'focus_required', label: 'Focus Required', emoji: '🎯' },
-  { value: 'collaborative', label: 'Collaborative', emoji: '👥' },
-  { value: 'creative', label: 'Creative', emoji: '✨' },
-  { value: 'administrative', label: 'Administrative', emoji: '📋' },
-];
 
 const ENERGY_LEVELS: { value: EnergyLevel; label: string; icon: typeof Battery }[] = [
   { value: 'low', label: 'Low', icon: BatteryLow },
@@ -60,7 +51,6 @@ export function QuickCaptureForm({
 
   const [title, setTitle] = useState('');
   const [expanded, setExpanded] = useState(defaultExpanded);
-  const [taskType, setTaskType] = useState<TaskType>('administrative');
   const [energyRequired, setEnergyRequired] = useState<EnergyLevel>('medium');
   const [estimatedTime, setEstimatedTime] = useState(15);
   const [tags, setTags] = useState<string[]>([]);
@@ -82,7 +72,6 @@ export function QuickCaptureForm({
     try {
       const task = await createTask({
         title: title.trim(),
-        taskType,
         energyRequired,
         estimatedTime,
         tags: tags.length > 0 ? tags : undefined,
@@ -132,16 +121,12 @@ export function QuickCaptureForm({
   useEffect(() => {
     const lower = title.toLowerCase();
     if (lower.includes('quick') || lower.includes('fast') || lower.includes('simple')) {
-      setTaskType('quick_win');
       setEnergyRequired('low');
     } else if (lower.includes('focus') || lower.includes('deep') || lower.includes('complex')) {
-      setTaskType('focus_required');
       setEnergyRequired('high');
     } else if (lower.includes('meet') || lower.includes('call') || lower.includes('discuss')) {
-      setTaskType('collaborative');
       setEnergyRequired('medium');
     } else if (lower.includes('design') || lower.includes('create') || lower.includes('write')) {
-      setTaskType('creative');
       setEnergyRequired('high');
     }
   }, [title]);
@@ -220,68 +205,15 @@ export function QuickCaptureForm({
                   : 'bg-white border-gray-200 text-gray-900 placeholder-gray-400'
               )}
             />
-
-            {/* Smart Suggestion */}
-            {title && (
-              <p className={cn('text-xs mt-2', isDark ? 'text-gray-500' : 'text-gray-400')}>
-                Detected: <span className="font-medium">{TASK_TYPES.find(t => t.value === taskType)?.label}</span> task
-              </p>
-            )}
           </div>
 
           {/* Options Grid */}
           <div
             className={cn(
-              'px-4 pb-4 grid grid-cols-3 gap-3',
+              'px-4 pb-4 grid grid-cols-2 gap-3',
               isDark ? 'text-gray-300' : 'text-gray-700'
             )}
           >
-            {/* Task Type */}
-            <div>
-              <label className="block text-xs font-medium mb-1">Type</label>
-              <Select.Root value={taskType} onValueChange={(v) => setTaskType(v as TaskType)}>
-                <Select.Trigger
-                  className={cn(
-                    'w-full px-3 py-2 rounded-lg border text-sm flex items-center justify-between',
-                    isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
-                  )}
-                >
-                  <Select.Value>
-                    {TASK_TYPES.find(t => t.value === taskType)?.emoji}{' '}
-                    {TASK_TYPES.find(t => t.value === taskType)?.label}
-                  </Select.Value>
-                  <Select.Icon>
-                    <ChevronDown className="w-4 h-4" />
-                  </Select.Icon>
-                </Select.Trigger>
-                <Select.Portal>
-                  <Select.Content
-                    className={cn(
-                      'rounded-lg border shadow-lg overflow-hidden z-50',
-                      isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
-                    )}
-                  >
-                    <Select.Viewport>
-                      {TASK_TYPES.map((type) => (
-                        <Select.Item
-                          key={type.value}
-                          value={type.value}
-                          className={cn(
-                            'px-3 py-2 text-sm cursor-pointer outline-none',
-                            isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
-                          )}
-                        >
-                          <Select.ItemText>
-                            {type.emoji} {type.label}
-                          </Select.ItemText>
-                        </Select.Item>
-                      ))}
-                    </Select.Viewport>
-                  </Select.Content>
-                </Select.Portal>
-              </Select.Root>
-            </div>
-
             {/* Energy */}
             <div>
               <label className="block text-xs font-medium mb-1">Energy</label>

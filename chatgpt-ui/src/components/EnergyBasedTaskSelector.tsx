@@ -15,13 +15,10 @@ import {
   BatteryLow,
   BatteryMedium,
   BatteryFull,
-  Zap,
-  Coffee,
   Moon,
   Clock,
   CheckCircle2,
   ArrowRight,
-  Sparkles,
   RefreshCw,
 } from 'lucide-react';
 import * as RadioGroup from '@radix-ui/react-radio-group';
@@ -114,19 +111,6 @@ export function EnergyBasedTaskSelector({
 
   const handleEnergySelect = (energy: EnergyLevel) => {
     setSelectedEnergy(energy);
-  };
-
-  const getTaskTypeIcon = (type?: string) => {
-    switch (type) {
-      case 'quick_win':
-        return <Zap className="w-4 h-4 text-green-500" />;
-      case 'focus_required':
-        return <Coffee className="w-4 h-4 text-purple-500" />;
-      case 'creative':
-        return <Sparkles className="w-4 h-4 text-pink-500" />;
-      default:
-        return <Clock className="w-4 h-4 text-gray-500" />;
-    }
   };
 
   return (
@@ -284,7 +268,6 @@ export function EnergyBasedTaskSelector({
 
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          {getTaskTypeIcon(task.taskType)}
                           <span
                             className={cn(
                               'font-medium truncate',

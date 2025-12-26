@@ -105,8 +105,11 @@ export class AiDDMCPServer {
   // =============================================================================
 
   /**
-   * Initialize E2E encryption using the OAuth token
+   * Initialize E2E encryption using stored OAuth password
    * Called automatically when the server starts with an OAuth token
+   *
+   * IMPORTANT: OAuth users must have their encryption password stored on the backend
+   * The password is generated randomly on first setup and must be fetched, NOT derived from tokens
    */
   private async initializeE2E(): Promise<void> {
     if (this.e2eInitialized) {
@@ -114,30 +117,56 @@ export class AiDDMCPServer {
     }
 
     const accessToken = this.backendClient.getAccessToken();
-    if (!accessToken || !this.oauthToken) {
-      console.log('[E2E] No OAuth token available, skipping E2E initialization');
+    if (!accessToken) {
+      console.log('[E2E] No access token available, skipping E2E initialization');
       return;
     }
 
     try {
       // Check if user has E2E encryption set up
       const status = await this.backendClient.getE2EStatus();
+      console.log('[E2E] E2E status check:', status);
 
       if (status.hasEncryption) {
-        // Unlock with OAuth token (derive password from token)
-        const unlocked = await this.e2eManager.unlockWithOAuthToken(accessToken, this.oauthToken);
+        // First try: Use stored OAuth password (preferred - works across devices)
+        let unlocked = false;
+        try {
+          unlocked = await this.e2eManager.unlockWithOAuthStoredPassword(accessToken);
+          if (unlocked) {
+            console.log('[E2E] ✅ Unlocked using stored OAuth password');
+          }
+        } catch (storedPasswordError) {
+          console.log('[E2E] Stored password not available:', storedPasswordError instanceof Error ? storedPasswordError.message : 'Unknown error');
+        }
+
+        // Second try: Fallback to token derivation if we have an OAuth token
+        if (!unlocked && this.oauthToken) {
+          try {
+            // Use the deprecated method which handles token derivation
+            unlocked = await this.e2eManager.unlockWithOAuthToken(accessToken, this.oauthToken);
+            if (unlocked) {
+              console.log('[E2E] ✅ Unlocked using token derivation (legacy)');
+            }
+          } catch (tokenError) {
+            console.log('[E2E] Token derivation also failed:', tokenError instanceof Error ? tokenError.message : 'Unknown error');
+          }
+        }
+
         if (unlocked) {
           this.e2eInitialized = true;
           console.log('[E2E] ✅ E2E encryption unlocked successfully');
         } else {
-          console.log('[E2E] ⚠️ E2E unlock returned false - data will be backend-encrypted only');
+          console.log('[E2E] ⚠️ E2E unlock failed - user may need to re-setup encryption from iOS app');
+          console.log('[E2E] ⚠️ Data will show as "[Encrypted - Unable to decrypt]" until key sync is restored');
         }
       } else {
-        console.log('[E2E] User has not set up E2E encryption - data will be backend-encrypted only');
+        console.log('[E2E] User has not set up E2E encryption yet - data will be backend-encrypted only');
+        // Note: E2E must be set up from the iOS app first, MCP can't create the encryption key
       }
     } catch (error) {
       console.error('[E2E] Failed to initialize E2E encryption:', error);
       // Continue without E2E - backend will still encrypt data
+      // User data will show as "[Encrypted - Unable to decrypt]" if it was E2E encrypted
     }
   }
 
@@ -177,9 +206,16 @@ export class AiDDMCPServer {
 
   /**
    * Decrypt sensitive fields from a note received from backend
+   * Note: Backend already decrypts for MCP/web access, so check if title exists first
    */
   private decryptNoteFromSync(note: any): any {
     if (!this.e2eEnabled) return note;
+
+    // If backend already decrypted (title exists and is valid), use that
+    if (note.title && typeof note.title === 'string' && !note.title.includes('[Encrypted')) {
+      return note;
+    }
+
     if (!note.encryptedTitle) return note; // Not E2E encrypted
 
     try {
@@ -214,9 +250,16 @@ export class AiDDMCPServer {
 
   /**
    * Decrypt sensitive fields from an action item received from backend
+   * Note: Backend already decrypts for MCP/web access, so check if title exists first
    */
   private decryptActionItemFromSync(item: any): any {
     if (!this.e2eEnabled) return item;
+
+    // If backend already decrypted (title exists and is valid), use that
+    if (item.title && typeof item.title === 'string' && !item.title.includes('[Encrypted')) {
+      return item;
+    }
+
     if (!item.encryptedTitle) return item;
 
     try {
@@ -251,9 +294,16 @@ export class AiDDMCPServer {
 
   /**
    * Decrypt sensitive fields from a task received from backend
+   * Note: Backend already decrypts for MCP/web access, so check if title exists first
    */
   private decryptTaskFromSync(task: any): any {
     if (!this.e2eEnabled) return task;
+
+    // If backend already decrypted (title exists and is valid), use that
+    if (task.title && typeof task.title === 'string' && !task.title.includes('[Encrypted')) {
+      return task;
+    }
+
     if (!task.encryptedTitle) return task;
 
     try {
@@ -562,6 +612,7 @@ export class AiDDMCPServer {
             onlyAIScored: { type: 'boolean', description: 'Only show tasks that have been AI scored' },
             dueWithinDays: { type: 'number', description: 'Filter to tasks due within this many days' },
             includeCompleted: { type: 'boolean', description: 'Include completed tasks (default: false)' },
+            timeBudgetMinutes: { type: 'number', description: 'Time budget optimization: fill this many minutes with highest-value task chains. Tasks from highest-scored chains are added first (respecting dependencies), then next highest chain, until time budget is filled.' },
           },
         },
         _meta: {
@@ -955,6 +1006,11 @@ export class AiDDMCPServer {
       // Return JSON-encoded data for ChatGPT widget compatibility
       // Return structuredContent for ChatGPT widget rendering
       // CRITICAL: Include IDs in text content so AI models can use them for delete operations
+
+      // Check if any action items are encrypted (couldn't be decrypted)
+      const encryptedItemCount = structuredItems.filter((item: any) => item.title?.includes('[Encrypted')).length;
+      const hasEncryptedItems = encryptedItemCount > 0;
+
       const itemsList = structuredItems.map((item: any, i: number) => {
         const priorityEmoji = item.priority === 'critical' ? '🔴' : item.priority === 'high' ? '🟠' : item.priority === 'medium' ? '🟡' : '🟢';
         const statusIcon = item.status === 'completed' ? '✅' : item.derivedTaskCount > 0 ? '🔄' : '⬜';
@@ -964,6 +1020,11 @@ export class AiDDMCPServer {
       // Build pagination info for the response
       const paginationInfo = hasMore
         ? `\n\n📄 **Showing ${offset + 1}-${offset + actionItems.length} of ${total} action items.** To see more, call \`list_action_items\` with \`offset: ${offset + limit}\`.`
+        : '';
+
+      // Add encryption warning if some items couldn't be decrypted
+      const encryptionWarning = hasEncryptedItems
+        ? `\n\n🔐 **Note:** ${encryptedItemCount} action item(s) are encrypted and couldn't be decrypted. Please open the AiDD iOS app to sync your encryption key.`
         : '';
 
       return {
@@ -980,8 +1041,11 @@ export class AiDDMCPServer {
           },
           totalActionItems: total, // Keep for backwards compatibility
           actionItems: structuredItems,
+          // Encryption status for widget display
+          hasEncryptedItems,
+          encryptedItemCount,
         },
-        content: [{ type: 'text', text: `✅ **Action Items** (showing ${actionItems.length} of ${total} total)\n\n${itemsList}${paginationInfo}\n\n*Use the IDs above with \`delete_action_items\` to remove items.*` } as TextContent],
+        content: [{ type: 'text', text: `✅ **Action Items** (showing ${actionItems.length} of ${total} total)\n\n${itemsList}${paginationInfo}${encryptionWarning}\n\n*Use the IDs above with \`delete_action_items\` to remove items.*` } as TextContent],
       };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error listing action items: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
@@ -1177,11 +1241,21 @@ export class AiDDMCPServer {
   }
 
   /**
-   * Sort tasks by score while respecting dependencies
-   * Mimics iOS DashboardTasksData.topologicalSortTasks logic:
+   * Sort tasks by score while respecting dependencies using DFS.
+   * Prioritizes unblocking high-value dependency chains.
+   *
+   * Algorithm:
    * 1. Process tasks in AI score order (highest first)
-   * 2. For each task, recursively visit dependencies first (also in score order)
-   * 3. This ensures dependencies come before dependents, while maintaining score order among independent tasks
+   * 2. For each task, recursively visit its dependencies first (also in score order)
+   * 3. This ensures blockers of high-score tasks come before lower-score independent tasks
+   *
+   * Example: If Task A (score 90) depends on Task B (score 30), and Task C (score 80)
+   * has no dependencies, the order will be: B (30), A (90), C (80)
+   * Because B unblocks the highest-scored task A, so we prioritize that chain.
+   *
+   * CRITICAL FIX: taskOrder is scoped per-actionItemId, so dependency resolution
+   * must use actionItemId:taskOrder as the key, not just taskOrder alone.
+   * Without this, tasks from different action items could incorrectly appear as dependencies.
    */
   private sortTasksByScoreWithDependencies(tasks: any[]): any[] {
     if (tasks.length === 0) return [];
@@ -1203,10 +1277,13 @@ export class AiDDMCPServer {
     });
 
     // Build task order to ID mapping (for dependsOnTaskOrders resolution)
-    const orderToId = new Map<number, string>();
+    // CRITICAL: Key includes actionItemId for proper scoping since taskOrder is per-action-item
+    // Without this fix, tasks with same taskOrder from different action items would collide,
+    // causing incorrect dependencies to be resolved (low-score tasks incorrectly pulled to front)
+    const orderToId = new Map<string, string>();
     tasks.forEach(task => {
-      if (task.taskOrder !== undefined && task.id) {
-        orderToId.set(task.taskOrder, task.id);
+      if (task.taskOrder !== undefined && task.id && task.actionItemId) {
+        orderToId.set(`${task.actionItemId}:${task.taskOrder}`, task.id);
       }
     });
 
@@ -1214,14 +1291,17 @@ export class AiDDMCPServer {
     const getDependencyIds = (task: any): string[] => {
       const depIds: string[] = [];
 
-      // Resolve dependsOnTaskOrders to IDs
+      // Resolve dependsOnTaskOrders to IDs (scoped by actionItemId)
       const orderDeps = task.dependsOnTaskOrders || [];
-      orderDeps.forEach((depOrder: number) => {
-        const depId = orderToId.get(depOrder);
-        if (depId && taskById.has(depId)) {
-          depIds.push(depId);
-        }
-      });
+      if (task.actionItemId) {
+        orderDeps.forEach((depOrder: number) => {
+          const key = `${task.actionItemId}:${depOrder}`;
+          const depId = orderToId.get(key);
+          if (depId && taskById.has(depId)) {
+            depIds.push(depId);
+          }
+        });
+      }
 
       // Add direct ID dependencies
       const idDeps = task.dependsOnTaskIds || [];
@@ -1243,7 +1323,7 @@ export class AiDDMCPServer {
         .map(d => d.id);
     };
 
-    // Topological sort with score-based ordering (matches iOS topologicalSortTasks)
+    // DFS topological sort with score-based ordering (matches iOS topologicalSortTasks)
     const result: any[] = [];
     const visited = new Set<string>();
     const selectedTaskIds = new Set(tasks.map(t => t.id));
@@ -1267,9 +1347,242 @@ export class AiDDMCPServer {
     };
 
     // Process tasks in AI score order (highest first)
-    // This ensures independent tasks are added in score order
+    // This ensures high-score chains are processed first, pulling their blockers to the front
     const tasksSortedByScore = [...tasks].sort((a, b) => getOverallScore(b) - getOverallScore(a));
 
+    for (const task of tasksSortedByScore) {
+      visit(task);
+    }
+
+    return result;
+  }
+
+  /**
+   * Sort tasks matching iOS DashboardTasksData.sortTasksRespectingDependencies algorithm.
+   *
+   * Algorithm (matches iOS exactly):
+   * 1. Sort all tasks by AI score (highest first)
+   * 2. Build "critical paths" for each task (task + all its prerequisites)
+   * 3. Greedily fill time window:
+   *    - For each task in score order, collect all prerequisites recursively
+   *    - If task + prerequisites fit in remaining time, add prerequisites first, then task
+   * 4. Final topological sort to ensure dependencies appear before dependents
+   */
+  private sortTasksByChainPriority(tasks: any[], timeBudgetMinutes?: number): any[] {
+    if (tasks.length === 0) return [];
+
+    console.log('[MCP:sortTasksByChainPriority] Starting with', tasks.length, 'tasks, timeBudget:', timeBudgetMinutes);
+
+    // Helper to get score from task
+    const getOverallScore = (task: any): number => {
+      if (task.score !== undefined) return task.score;
+      if (task.overallScore !== undefined) return task.overallScore;
+      if (task.relevanceScore !== undefined && task.impactScore !== undefined && task.urgencyScore !== undefined) {
+        return (task.relevanceScore + task.impactScore + task.urgencyScore) / 3 * 100;
+      }
+      return 0;
+    };
+
+    const getEstimatedMinutes = (task: any): number => {
+      return task.estimatedTime || 15; // Default 15 minutes
+    };
+
+    // Build lookup maps
+    const taskById = new Map<string, any>();
+    // Use actionItemId:taskOrder as composite key to avoid collisions across action items
+    const orderToTask = new Map<string, any>();
+
+    tasks.forEach(task => {
+      if (task.id) taskById.set(task.id, task);
+      if (task.taskOrder !== undefined) {
+        const key = task.actionItemId ? `${task.actionItemId}:${task.taskOrder}` : `_:${task.taskOrder}`;
+        orderToTask.set(key, task);
+      }
+    });
+
+    // Log dependency stats
+    const tasksWithDependsOnTaskOrders = tasks.filter(t => t.dependsOnTaskOrders && t.dependsOnTaskOrders.length > 0);
+    const tasksWithDependsOnTaskIds = tasks.filter(t => t.dependsOnTaskIds && t.dependsOnTaskIds.length > 0);
+    const tasksWithActionItemId = tasks.filter(t => t.actionItemId);
+    console.log('[MCP:sortTasksByChainPriority] Dependency stats:',
+      'withDependsOnTaskOrders:', tasksWithDependsOnTaskOrders.length,
+      'withDependsOnTaskIds:', tasksWithDependsOnTaskIds.length,
+      'withActionItemId:', tasksWithActionItemId.length,
+      'orderToTask entries:', orderToTask.size);
+
+    // Log actual dependency references to debug resolution
+    tasksWithDependsOnTaskIds.forEach(task => {
+      const depIds = task.dependsOnTaskIds || [];
+      const resolvedDeps = depIds.filter((depId: string) => taskById.has(depId));
+      const unresolvedDeps = depIds.filter((depId: string) => !taskById.has(depId));
+      console.log('[MCP:sortTasksByChainPriority] Task', task.id?.slice(-8),
+        'title:', task.title?.slice(0, 30),
+        'dependsOnTaskIds:', depIds.length,
+        'resolved:', resolvedDeps.length,
+        'unresolved:', unresolvedDeps.length,
+        unresolvedDeps.length > 0 ? 'unresolvedIds:' + unresolvedDeps.map((id: string) => id.slice(-8)).join(',') : '');
+    });
+
+    // Get all dependency IDs for a task
+    const getDependencyIds = (task: any): string[] => {
+      const depIds: string[] = [];
+
+      // From dependsOnTaskOrders (use composite key)
+      const orderDeps = task.dependsOnTaskOrders || [];
+      orderDeps.forEach((depOrder: number) => {
+        const key = task.actionItemId ? `${task.actionItemId}:${depOrder}` : `_:${depOrder}`;
+        const depTask = orderToTask.get(key);
+        if (depTask?.id) {
+          depIds.push(depTask.id);
+        }
+      });
+
+      // From dependsOnTaskIds
+      const idDeps = task.dependsOnTaskIds || [];
+      idDeps.forEach((depId: string) => {
+        if (taskById.has(depId) && !depIds.includes(depId)) {
+          depIds.push(depId);
+        }
+      });
+
+      return depIds;
+    };
+
+    // Collect all prerequisites recursively (iOS: collectAllPrerequisitesForSelection)
+    const collectAllPrerequisites = (taskId: string, visited: Set<string> = new Set()): string[] => {
+      if (visited.has(taskId)) return [];
+      visited.add(taskId);
+
+      const task = taskById.get(taskId);
+      if (!task) return [];
+
+      const prerequisites: string[] = [];
+      for (const depId of getDependencyIds(task)) {
+        if (!visited.has(depId)) {
+          prerequisites.push(...collectAllPrerequisites(depId, visited));
+          prerequisites.push(depId);
+        }
+      }
+
+      return prerequisites;
+    };
+
+    // Step 1: Sort tasks by score (highest first) - iOS: tasksSortedByScore
+    const tasksSortedByScore = [...tasks].sort((a, b) => getOverallScore(b) - getOverallScore(a));
+
+    // Step 2 & 3: Greedy time-filling algorithm (iOS: critical paths + greedy filling)
+    const selectedTasks: any[] = [];
+    const selectedIds = new Set<string>();
+    let totalTimeMinutes = 0;
+    const hasTimeBudget = timeBudgetMinutes !== undefined && timeBudgetMinutes > 0;
+    const availableMinutes = hasTimeBudget ? timeBudgetMinutes : Infinity;
+
+    // Log first 5 tasks in score order for debugging
+    console.log('[MCP:sortTasksByChainPriority] First 5 tasks by score:',
+      tasksSortedByScore.slice(0, 5).map(t => ({
+        id: t.id?.slice(-8),
+        title: t.title?.slice(0, 25),
+        score: getOverallScore(t),
+        deps: (t.dependsOnTaskIds || []).length
+      })));
+
+    for (const task of tasksSortedByScore) {
+      if (!task.id || selectedIds.has(task.id)) continue;
+
+      // Collect all prerequisites for this task
+      const prerequisiteIds = collectAllPrerequisites(task.id);
+      const tasksToAdd: any[] = [];
+      let chainDuration = getEstimatedMinutes(task);
+
+      // Log if task has prerequisites
+      if (prerequisiteIds.length > 0) {
+        console.log('[MCP:sortTasksByChainPriority] Task', task.id?.slice(-8),
+          'has', prerequisiteIds.length, 'prerequisites:',
+          prerequisiteIds.map(id => id.slice(-8)).join(','));
+      }
+
+      // Check if all prerequisites can fit
+      for (const prereqId of prerequisiteIds) {
+        if (selectedIds.has(prereqId)) continue; // Already selected
+
+        const prereqTask = taskById.get(prereqId);
+        if (!prereqTask) continue;
+
+        tasksToAdd.push(prereqTask);
+        chainDuration += getEstimatedMinutes(prereqTask);
+      }
+
+      // Check if entire chain fits in remaining time
+      if (hasTimeBudget && totalTimeMinutes + chainDuration > availableMinutes) {
+        continue; // Skip this task and its chain
+      }
+
+      // Add prerequisites first (in dependency order)
+      for (const prereqTask of tasksToAdd) {
+        if (!selectedIds.has(prereqTask.id)) {
+          selectedTasks.push(prereqTask);
+          selectedIds.add(prereqTask.id);
+          totalTimeMinutes += getEstimatedMinutes(prereqTask);
+        }
+      }
+
+      // Add the main task
+      selectedTasks.push(task);
+      selectedIds.add(task.id);
+      totalTimeMinutes += getEstimatedMinutes(task);
+    }
+
+    // Step 4: Final topological sort (iOS: topologicalSortTasks)
+    // Process in score order, visiting dependencies first
+    console.log('[MCP:sortTasksByChainPriority] selectedTasks before topological sort:', selectedTasks.length);
+    const result = this.topologicalSortByScore(selectedTasks, taskById, getDependencyIds, getOverallScore);
+    console.log('[MCP:sortTasksByChainPriority] Final result:', result.length, 'tasks');
+    return result;
+  }
+
+  /**
+   * Topological sort that processes in score order and visits dependencies first.
+   * Matches iOS DashboardTasksData.topologicalSortTasks
+   */
+  private topologicalSortByScore(
+    tasks: any[],
+    taskById: Map<string, any>,
+    getDependencyIds: (task: any) => string[],
+    getOverallScore: (task: any) => number
+  ): any[] {
+    if (tasks.length <= 1) return tasks;
+
+    const selectedTaskIds = new Set(tasks.map(t => t.id));
+    const result: any[] = [];
+    const visited = new Set<string>();
+
+    // Get sorted dependencies for a task
+    const getSortedDependencies = (task: any): string[] => {
+      const depIds = getDependencyIds(task);
+      return depIds
+        .filter(depId => selectedTaskIds.has(depId))
+        .map(depId => ({ id: depId, score: getOverallScore(taskById.get(depId)) }))
+        .sort((a, b) => b.score - a.score)
+        .map(d => d.id);
+    };
+
+    const visit = (task: any) => {
+      if (!task.id || visited.has(task.id)) return;
+      visited.add(task.id);
+
+      // Visit dependencies first, in score order (highest first)
+      for (const depId of getSortedDependencies(task)) {
+        const depTask = taskById.get(depId);
+        if (depTask) {
+          visit(depTask);
+        }
+      }
+
+      result.push(task);
+    };
+
+    // Process tasks in score order (highest first)
+    const tasksSortedByScore = [...tasks].sort((a, b) => getOverallScore(b) - getOverallScore(a));
     for (const task of tasksSortedByScore) {
       visit(task);
     }
@@ -1415,12 +1728,29 @@ export class AiDDMCPServer {
   private async handleListTasks(args: any) {
     try {
       console.log('[MCP] handleListTasks called with args:', JSON.stringify(args));
+      // Log filter parameters specifically for debugging
+      console.log('[MCP] Filter params - category:', args.category, 'maxEnergy:', args.maxEnergy,
+        'maxTimeMinutes:', args.maxTimeMinutes, 'onlyAIScored:', args.onlyAIScored);
       await this.ensureE2EInitialized();
 
+      // For scoreWithDependencies (default) or score sorting, we need the backend to return
+      // tasks sorted by score first, then we apply dependency-aware ordering client-side.
+      // This ensures we get the highest-scored tasks in the paginated result.
+      const backendArgs = { ...args };
+      if (!backendArgs.sortBy || backendArgs.sortBy === 'score' || backendArgs.sortBy === 'scoreWithDependencies') {
+        backendArgs.sortBy = 'score';
+        backendArgs.order = backendArgs.order || 'desc'; // Highest scores first
+      }
+
       // Use pagination-aware method to get total count
-      console.log('[MCP] Calling listTasksWithPagination...');
-      const paginatedResult = await this.backendClient.listTasksWithPagination(args);
-      console.log('[MCP] listTasksWithPagination returned', paginatedResult.items.length, 'tasks');
+      console.log('[MCP] Calling listTasksWithPagination with backend args:', JSON.stringify(backendArgs));
+      console.log('[MCP] Filters being passed: category=' + backendArgs.category +
+        ', maxEnergy=' + backendArgs.maxEnergy +
+        ', maxTimeMinutes=' + backendArgs.maxTimeMinutes +
+        ', onlyAIScored=' + backendArgs.onlyAIScored +
+        ', dueWithinDays=' + backendArgs.dueWithinDays);
+      const paginatedResult = await this.backendClient.listTasksWithPagination(backendArgs);
+      console.log('[MCP] listTasksWithPagination returned', paginatedResult.items.length, 'tasks, total:', paginatedResult.total);
       let tasks = paginatedResult.items;
       const { total, limit, offset, hasMore } = paginatedResult;
 
@@ -1439,32 +1769,117 @@ export class AiDDMCPServer {
         }
       });
 
-      // Add resolved dependency titles to each task
+      // Add resolved dependency tasks (full objects with sourceActionItem) to each task
       tasks = tasks.map((task: any) => {
         if (task.dependsOnTaskOrders && task.dependsOnTaskOrders.length > 0 && task.actionItemId) {
-          const dependencyTitles = task.dependsOnTaskOrders
+          const dependencyTasks = task.dependsOnTaskOrders
             .map((order: number) => {
               const depTask = taskByOrder.get(`${task.actionItemId}:${order}`);
-              return depTask ? depTask.title : `Task #${order}`;
+              if (depTask) {
+                // Return essential task data including sourceActionItem
+                return {
+                  id: depTask.id,
+                  title: depTask.title,
+                  taskOrder: depTask.taskOrder,
+                  isCompleted: depTask.isCompleted || false,
+                  estimatedTime: depTask.estimatedTime,
+                  energyRequired: depTask.energyRequired,
+                  sourceActionItem: depTask.sourceActionItem ? {
+                    title: depTask.sourceActionItem.title,
+                    priority: depTask.sourceActionItem.priority,
+                    category: depTask.sourceActionItem.category,
+                  } : null,
+                };
+              }
+              return { title: `Task #${order}`, id: null };
             });
-          task.resolvedDependencies = dependencyTitles;
+          task.resolvedDependencies = dependencyTasks.map((t: any) => t.title); // Keep string array for backward compat
+          task.resolvedDependencyTasks = dependencyTasks; // Full task objects for widget
         }
         return task;
       });
 
       // Sort tasks - default is scoreWithDependencies for best "what should I work on next" results
+      console.log('[MCP] Sorting - args.sortBy:', args.sortBy, 'args.ignoreDependencies:', args.ignoreDependencies);
+      const preSort = tasks.slice(0, 5).map((t: any) => ({ id: t.id?.slice(-8), title: t.title?.slice(0, 30), score: t.score || t.overallScore }));
+      console.log('[MCP] Pre-sort first 5 tasks:', JSON.stringify(preSort));
+
+      // DEPENDENCY FIX: Fetch missing dependent tasks to enable proper dependency-aware sorting
+      // When we only fetch top N tasks by score, their dependencies (lower-scored tasks) might not be included
+      if (!args.ignoreDependencies && (!args.sortBy || args.sortBy === 'score' || args.sortBy === 'scoreWithDependencies')) {
+        const taskIdSet = new Set(tasks.map((t: any) => t.id));
+        const missingDepIds: string[] = [];
+
+        // Collect all referenced dependencies that aren't in our current task set
+        for (const task of tasks) {
+          const depIds = task.dependsOnTaskIds || [];
+          for (const depId of depIds) {
+            if (!taskIdSet.has(depId) && !missingDepIds.includes(depId)) {
+              missingDepIds.push(depId);
+            }
+          }
+        }
+
+        console.log('[MCP] Found', missingDepIds.length, 'missing dependent task IDs to fetch');
+
+        // Fetch missing dependent tasks (in batches if needed)
+        if (missingDepIds.length > 0 && missingDepIds.length <= 50) {
+          try {
+            const missingTasks: any[] = [];
+            for (const depId of missingDepIds) {
+              try {
+                const response = await this.backendClient.readTask(depId);
+                // Backend may return {task: {...}} or just the task directly
+                const depTask = response?.task || response;
+                if (depTask && depTask.id) {
+                  // Decrypt if needed
+                  const decryptedTask = this.decryptTaskFromSync(depTask);
+                  missingTasks.push(decryptedTask);
+                  console.log('[MCP] Fetched dependent task:', depId.slice(-8), 'title:', decryptedTask.title?.slice(0, 30));
+                }
+              } catch (fetchErr) {
+                console.warn('[MCP] Could not fetch dependent task', depId.slice(-8), fetchErr);
+              }
+            }
+            console.log('[MCP] Fetched', missingTasks.length, 'missing dependent tasks');
+            // Enrich missing tasks with sourceActionItems before adding to pool
+            const enrichedMissingTasks = await this.enrichTasksWithSourceActionItems(missingTasks);
+            // Add missing tasks to the pool for sorting
+            tasks = [...tasks, ...enrichedMissingTasks];
+          } catch (err) {
+            console.warn('[MCP] Failed to fetch some missing dependencies:', err);
+          }
+        }
+      }
+
       if (args.sortBy === 'dependencyOrder') {
         // Pure topological sort by dependency order only
+        console.log('[MCP] Using sortTasksByDependencyOrder');
         tasks = this.sortTasksByDependencyOrder(tasks);
       } else if (args.ignoreDependencies) {
         // User explicitly wants to ignore dependencies - sort purely by score
+        console.log('[MCP] Using sortTasksByScore (ignoreDependencies=true)');
         tasks = this.sortTasksByScore(tasks, args.order === 'asc');
       } else if (!args.sortBy || args.sortBy === 'score' || args.sortBy === 'scoreWithDependencies') {
         // Default: Sort by AI score while respecting dependencies
-        // This ensures high-scoring tasks appear first, but their prerequisites come before them
-        tasks = this.sortTasksByScoreWithDependencies(tasks);
+        // Groups tasks by chain (actionItemId), ranks chains by highest task score,
+        // then adds tasks from each chain in dependency order
+        console.log('[MCP] Using sortTasksByChainPriority (default dependency-aware sorting)');
+        tasks = this.sortTasksByChainPriority(tasks, args.timeBudgetMinutes);
+      } else {
+        console.log('[MCP] No MCP-side sorting applied, using backend order');
       }
       // For createdAt, updatedAt, dueDate - backend already sorts these, no additional sort needed
+
+      const postSort = tasks.slice(0, 5).map((t: any) => ({ id: t.id?.slice(-8), title: t.title?.slice(0, 30), score: t.score || t.overallScore }));
+      console.log('[MCP] Post-sort first 5 tasks:', JSON.stringify(postSort));
+
+      // Trim back to requested limit (we may have added extra tasks for dependency resolution)
+      const requestedLimit = args.limit || 100;
+      if (tasks.length > requestedLimit) {
+        console.log('[MCP] Trimming from', tasks.length, 'to', requestedLimit, 'tasks');
+        tasks = tasks.slice(0, requestedLimit);
+      }
 
       // Build structured task data for ChatGPT widgets
       // ChatGPT expects JSON-encoded data in the text field for proper widget rendering
@@ -1477,7 +1892,8 @@ export class AiDDMCPServer {
           title: task.title,
           description: task.description || null,
           status: task.isCompleted ? 'completed' : 'pending',
-          // AI Scores
+          // AI Scores - include both 'score' (for widget sorting) and 'overallScore' (for display)
+          score: overallScore, // Widget uses this for client-side sorting
           hasBeenAIScored: task.hasBeenAIScored || false,
           overallScore: overallScore,
           urgencyScore: task.urgencyScore !== undefined ? Math.round(task.urgencyScore * 100) : undefined,
@@ -1498,6 +1914,8 @@ export class AiDDMCPServer {
             category: task.sourceActionItem.category,
           } : null,
           dependencies: task.resolvedDependencies || (task.dependsOnTaskOrders ? task.dependsOnTaskOrders.map((o: number) => `Task #${o}`) : []),
+          dependencyTasks: task.resolvedDependencyTasks || [], // Full task objects with sourceActionItem
+          dependsOnTaskIds: task.dependsOnTaskIds || [],
           // Timestamps
           createdAt: task.createdAt || null,
           updatedAt: task.updatedAt || null,
@@ -1509,18 +1927,35 @@ export class AiDDMCPServer {
       // Return structuredContent for ChatGPT widget rendering
       // The widget reads from window.openai.toolOutput, model reads content for narration
       // CRITICAL: Include IDs in text content so AI models can use them for delete operations
-      const tasksList = structuredTasks.map((task: any, i: number) => {
-        const statusIcon = task.status === 'completed' ? '✅' : '⬜';
-        const scoreDisplay = task.overallScore !== undefined ? ` [${task.overallScore}%]` : '';
+
+      // Tasks are already sorted by scoreWithDependencies (default) from the backend
+      // This is the ADHD-optimized order that respects dependencies
+      // Both text response and widget should use this order without re-sorting
+
+      // Check if any tasks are encrypted (couldn't be decrypted)
+      const encryptedTaskCount = structuredTasks.filter((t: any) => t.title?.includes('[Encrypted')).length;
+      const hasEncryptedTasks = encryptedTaskCount > 0;
+
+      // Filter out completed tasks for text response (matches widget's default showCompleted=false)
+      const pendingTasks = structuredTasks.filter((t: any) => t.status !== 'completed');
+
+      const tasksList = pendingTasks.map((task: any, i: number) => {
+        const statusIcon = '⬜';
+        const scoreDisplay = task.score !== undefined ? ` [${task.score}%]` : '';
         const timeDisplay = task.estimatedTime ? ` ~${task.estimatedTime}min` : '';
         const energyEmoji = task.energyRequired === 'high' ? '⚡' : task.energyRequired === 'low' ? '🔋' : '';
         const sourceDisplay = task.sourceActionItem ? ` ← "${task.sourceActionItem.title}"` : '';
-        return `${offset + i + 1}. ${statusIcon} **${task.title}** (ID: \`${task.id}\`)${scoreDisplay}${timeDisplay}${energyEmoji}${sourceDisplay}`;
+        return `${i + 1}. ${statusIcon} **${task.title}** (ID: \`${task.id}\`)${scoreDisplay}${timeDisplay}${energyEmoji}${sourceDisplay}`;
       }).join('\n');
 
       // Build pagination info for the response
       const paginationInfo = hasMore
         ? `\n\n📄 **Showing ${offset + 1}-${offset + tasks.length} of ${total} tasks.** To see more, call \`list_tasks\` with \`offset: ${offset + limit}\`.`
+        : '';
+
+      // Add encryption warning if some tasks couldn't be decrypted
+      const encryptionWarning = hasEncryptedTasks
+        ? `\n\n🔐 **Note:** ${encryptedTaskCount} task(s) are encrypted and couldn't be decrypted. Please open the AiDD iOS app to sync your encryption key.`
         : '';
 
       return {
@@ -1537,8 +1972,11 @@ export class AiDDMCPServer {
           },
           totalTasks: total, // Keep for backwards compatibility
           tasks: structuredTasks,
+          // Let the widget know about encryption issues
+          hasEncryptedItems: hasEncryptedTasks,
+          encryptedItemCount: encryptedTaskCount,
         },
-        content: [{ type: 'text', text: `📋 **Tasks** (showing ${tasks.length} of ${total} total)\n\n${tasksList}${paginationInfo}\n\n*Use the IDs above with \`delete_tasks\` to remove tasks.*` } as TextContent],
+        content: [{ type: 'text', text: `📋 **Pending Tasks** (${pendingTasks.length} of ${total} total)\n\n${tasksList}${paginationInfo}${encryptionWarning}\n\n*Use the IDs above with \`delete_tasks\` to remove tasks.*` } as TextContent],
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -1775,7 +2213,16 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
         const { jobId, taskCount } = await this.backendClient.startScoringJobAsync(tasks);
         let response = `🚀 **AI Scoring Started**\n\nYour ${taskCount} tasks are being scored in the background using ADHD-optimized AI prioritization.\n\n**What's happening:**\n• AI is analyzing urgency, impact, and relevance for each task\n• Tasks will be ranked by optimal execution order\n• Energy levels and time-of-day are being considered\n\n**Check your results:**\n⏱️ **Check back in ~5 minutes** - use the \`list_tasks\` tool to see your scored and prioritized tasks.\n\nJob ID: \`${jobId}\``;
         response = this.appendUsageWarning(response, usageCheck);
-        return { content: [{ type: 'text', text: response.trim() } as TextContent] };
+        // CRITICAL: Return jobId in structuredContent for widget polling
+        return {
+          structuredContent: {
+            success: true,
+            jobId,
+            taskCount,
+            status: 'started'
+          },
+          content: [{ type: 'text', text: response.trim() } as TextContent]
+        };
       }
 
       const scoredTasks = await this.backendClient.scoreTasks(tasks);
