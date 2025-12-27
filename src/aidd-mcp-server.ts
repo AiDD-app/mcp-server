@@ -13,6 +13,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { AiDDBackendClient } from './aidd-backend-client.js';
 import { z } from 'zod';
+import { createHash } from 'crypto';
 import {
   SubscriptionManager,
   SubscriptionStatus,
@@ -275,6 +276,101 @@ export class AiDDMCPServer {
     }
   }
 
+  private normalizeActionItemPriority(priority: any): 'low' | 'medium' | 'high' | 'urgent' {
+    const value = typeof priority === 'string' ? priority.trim().toLowerCase() : '';
+    if (value === 'critical') return 'urgent';
+    if (value === 'urgent' || value === 'high' || value === 'medium' || value === 'low') {
+      return value;
+    }
+    return 'medium';
+  }
+
+  private normalizeImportValue(value: any): string {
+    if (typeof value !== 'string') return '';
+    return value.trim().toLowerCase().replace(/\s+/g, ' ');
+  }
+
+  private normalizeImportDueDate(value: any): string {
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      return value.toISOString();
+    }
+    if (typeof value !== 'string') return '';
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+    const parsed = new Date(trimmed);
+    if (Number.isNaN(parsed.getTime())) {
+      return trimmed.toLowerCase();
+    }
+    return parsed.toISOString();
+  }
+
+  private buildActionItemImportKey(item: { title: string; description?: string; category?: string; dueDate?: any }): string {
+    const normalizedTitle = this.normalizeImportValue(item.title);
+    const normalizedDescription = this.normalizeImportValue(item.description);
+    const normalizedCategory = item.category === 'personal' ? 'personal' : 'work';
+    const normalizedDueDate = this.normalizeImportDueDate(item.dueDate);
+    return JSON.stringify({
+      title: normalizedTitle,
+      description: normalizedDescription,
+      category: normalizedCategory,
+      dueDate: normalizedDueDate,
+    });
+  }
+
+  private buildImportSourceId(importKey: string): string {
+    const hash = createHash('sha256').update(importKey).digest('hex').slice(0, 32);
+    return `mcp-import:${hash}`;
+  }
+
+  private buildActionItemSourceNoteId(importKey: string): string {
+    return this.buildImportSourceId(importKey);
+  }
+
+  private buildNoteImportKey(note: { title: string; content: string; category?: string }): string {
+    const normalizedTitle = this.normalizeImportValue(note.title);
+    const normalizedContent = this.normalizeImportValue(note.content);
+    const normalizedCategory = note.category === 'work' ? 'work' : 'personal';
+    return JSON.stringify({
+      title: normalizedTitle,
+      content: normalizedContent,
+      category: normalizedCategory,
+    });
+  }
+
+  private buildNoteSourceId(importKey: string): string {
+    return this.buildImportSourceId(importKey);
+  }
+
+  private buildTaskImportKey(task: {
+    title: string;
+    description?: string;
+    estimatedTime?: number;
+    energyRequired?: string;
+    taskType?: string;
+    dueDate?: any;
+  }): string {
+    const normalizedTitle = this.normalizeImportValue(task.title);
+    const normalizedDescription = this.normalizeImportValue(task.description);
+    const normalizedEnergy = this.normalizeImportValue(task.energyRequired);
+    const normalizedTaskType = this.normalizeImportValue(task.taskType);
+    const normalizedDueDate = this.normalizeImportDueDate(task.dueDate);
+    const estimatedTime = typeof task.estimatedTime === 'number' && Number.isFinite(task.estimatedTime)
+      ? Math.round(task.estimatedTime)
+      : 15;
+    return JSON.stringify({
+      title: normalizedTitle,
+      description: normalizedDescription,
+      estimatedTime,
+      energyRequired: normalizedEnergy,
+      taskType: normalizedTaskType,
+      dueDate: normalizedDueDate,
+    });
+  }
+
+  private buildTaskSourceId(importKey: string): string {
+    return this.buildImportSourceId(importKey);
+  }
+
   /**
    * Encrypt sensitive fields for a task before sending to backend
    */
@@ -410,6 +506,9 @@ export class AiDDMCPServer {
           case 'create_note':
             result = await this.handleCreateNote(args);
             break;
+          case 'create_notes':
+            result = await this.handleCreateNotes(args);
+            break;
           case 'list_action_items':
             result = await this.handleListActionItems(args);
             break;
@@ -418,6 +517,9 @@ export class AiDDMCPServer {
             break;
           case 'create_action_item':
             result = await this.handleCreateActionItem(args);
+            break;
+          case 'create_action_items':
+            result = await this.handleCreateActionItems(args);
             break;
           case 'extract_action_items':
             result = await this.handleExtractActionItems(args);
@@ -431,6 +533,9 @@ export class AiDDMCPServer {
           case 'create_task':
             result = await this.handleCreateTask(args);
             break;
+          case 'create_tasks':
+            result = await this.handleCreateTasks(args);
+            break;
           case 'convert_to_tasks':
             result = await this.handleConvertToTasks(args);
             break;
@@ -443,17 +548,26 @@ export class AiDDMCPServer {
           case 'update_note':
             result = await this.handleUpdateNote(args);
             break;
+          case 'update_notes':
+            result = await this.handleUpdateNotes(args);
+            break;
           case 'delete_notes':
             result = await this.handleDeleteNotes(args);
             break;
           case 'update_action_item':
             result = await this.handleUpdateActionItem(args);
             break;
+          case 'update_action_items':
+            result = await this.handleUpdateActionItems(args);
+            break;
           case 'delete_action_items':
             result = await this.handleDeleteActionItems(args);
             break;
           case 'update_task':
             result = await this.handleUpdateTask(args);
+            break;
+          case 'update_tasks':
+            result = await this.handleUpdateTasks(args);
             break;
           case 'delete_tasks':
             result = await this.handleDeleteTasks(args);
@@ -518,7 +632,7 @@ export class AiDDMCPServer {
       },
       {
         name: 'create_note',
-        description: 'Create a new note in your AiDD account',
+        description: 'Create a new note in your AiDD account. Use this for a single note; for lists, use create_notes.',
         annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
         inputSchema: {
           type: 'object',
@@ -529,6 +643,32 @@ export class AiDDMCPServer {
             category: { type: 'string', enum: ['work', 'personal'], description: 'Category of the note (default: personal)' },
           },
           required: ['title', 'content'],
+        },
+      },
+      {
+        name: 'create_notes',
+        description: 'Create multiple notes from an explicit list. Use this for 1:1 list imports.',
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+        inputSchema: {
+          type: 'object',
+          properties: {
+            notes: {
+              type: 'array',
+              description: 'List of notes to create, one per list entry.',
+              items: {
+                type: 'object',
+                properties: {
+                  title: { type: 'string', description: 'Title of the note' },
+                  content: { type: 'string', description: 'Content of the note' },
+                  tags: { type: 'array', items: { type: 'string' }, description: 'Tags for the note (optional)' },
+                  category: { type: 'string', enum: ['work', 'personal'], description: 'Category of the note (default: personal)' },
+                  sourceId: { type: 'string', description: 'Optional source ID for deduplication (auto-generated if omitted)' },
+                },
+                required: ['title', 'content'],
+              },
+            },
+          },
+          required: ['notes'],
         },
       },
       {
@@ -562,14 +702,14 @@ export class AiDDMCPServer {
       },
       {
         name: 'create_action_item',
-        description: 'Create a new action item in your AiDD account',
+        description: 'Create a new action item in your AiDD account. Use this for a single item; for explicit lists, use create_action_items.',
         annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
         inputSchema: {
           type: 'object',
           properties: {
             title: { type: 'string', description: 'Title of the action item' },
             description: { type: 'string', description: 'Description of the action item (optional)' },
-            priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'], description: 'Priority level (default: medium)' },
+            priority: { type: 'string', enum: ['low', 'medium', 'high', 'urgent', 'critical'], description: 'Priority level (default: medium)' },
             dueDate: { type: 'string', description: 'Due date in ISO format (optional)' },
             tags: { type: 'array', items: { type: 'string' }, description: 'Tags for the action item (optional)' },
             category: { type: 'string', enum: ['work', 'personal'], description: 'Category of the action item (default: work)' },
@@ -578,8 +718,35 @@ export class AiDDMCPServer {
         },
       },
       {
+        name: 'create_action_items',
+        description: 'Create multiple action items from an explicit list provided by the user. Use this for 1:1 list imports. Do NOT use extract_action_items for explicit lists.',
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+        inputSchema: {
+          type: 'object',
+          properties: {
+            items: {
+              type: 'array',
+              description: 'List of action items to create, one per list entry.',
+              items: {
+                type: 'object',
+                properties: {
+                  title: { type: 'string', description: 'Title of the action item' },
+                  description: { type: 'string', description: 'Description of the action item (optional)' },
+                  priority: { type: 'string', enum: ['low', 'medium', 'high', 'urgent', 'critical'], description: 'Priority level (default: medium)' },
+                  dueDate: { type: 'string', description: 'Due date in ISO format (optional)' },
+                  tags: { type: 'array', items: { type: 'string' }, description: 'Tags for the action item (optional)' },
+                  category: { type: 'string', enum: ['work', 'personal'], description: 'Category of the action item (default: work)' },
+                },
+                required: ['title'],
+              },
+            },
+          },
+          required: ['items'],
+        },
+      },
+      {
         name: 'extract_action_items',
-        description: 'Extract action items from notes or text using AiDD AI processing',
+        description: 'Extract action items from notes or text using AiDD AI processing. Do not use for explicit user-provided lists; use create_action_item(s) instead.',
         annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
         inputSchema: {
           type: 'object',
@@ -633,7 +800,7 @@ export class AiDDMCPServer {
       },
       {
         name: 'create_task',
-        description: 'Create a new task in your AiDD account',
+        description: 'Create a new task in your AiDD account. Use this for a single task; for lists, use create_tasks.',
         annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
         inputSchema: {
           type: 'object',
@@ -647,6 +814,35 @@ export class AiDDMCPServer {
             tags: { type: 'array', items: { type: 'string' }, description: 'Tags for the task (optional)' },
           },
           required: ['title'],
+        },
+      },
+      {
+        name: 'create_tasks',
+        description: 'Create multiple tasks from an explicit list.',
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+        inputSchema: {
+          type: 'object',
+          properties: {
+            tasks: {
+              type: 'array',
+              description: 'List of tasks to create, one per list entry.',
+              items: {
+                type: 'object',
+                properties: {
+                  title: { type: 'string', description: 'Title of the task' },
+                  description: { type: 'string', description: 'Description of the task (optional)' },
+                  estimatedTime: { type: 'number', description: 'Estimated time in minutes (default: 15)' },
+                  energyRequired: { type: 'string', enum: ['low', 'medium', 'high'], description: 'Energy level required (default: medium)' },
+                  taskType: { type: 'string', enum: ['quick_win', 'focus_required', 'collaborative', 'creative', 'administrative'], description: 'Type of task (optional - will be inferred from content if not specified)' },
+                  dueDate: { type: 'string', description: 'Due date in ISO format (optional)' },
+                  tags: { type: 'array', items: { type: 'string' }, description: 'Tags for the task (optional)' },
+                  sourceId: { type: 'string', description: 'Optional source ID for deduplication (auto-generated if omitted)' },
+                },
+                required: ['title'],
+              },
+            },
+          },
+          required: ['tasks'],
         },
       },
       {
@@ -703,7 +899,7 @@ export class AiDDMCPServer {
       },
       {
         name: 'update_note',
-        description: 'Update an existing note in your AiDD account',
+        description: 'Update an existing note in your AiDD account. Use update_notes for bulk updates.',
         annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
         inputSchema: {
           type: 'object',
@@ -718,6 +914,32 @@ export class AiDDMCPServer {
         },
       },
       {
+        name: 'update_notes',
+        description: 'Update multiple notes in your AiDD account.',
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+        inputSchema: {
+          type: 'object',
+          properties: {
+            updates: {
+              type: 'array',
+              description: 'List of note updates with noteId and fields to change.',
+              items: {
+                type: 'object',
+                properties: {
+                  noteId: { type: 'string', description: 'ID of the note to update' },
+                  title: { type: 'string', description: 'New title for the note' },
+                  content: { type: 'string', description: 'New content for the note' },
+                  tags: { type: 'array', items: { type: 'string' }, description: 'New tags for the note' },
+                  category: { type: 'string', enum: ['work', 'personal'], description: 'New category for the note' },
+                },
+                required: ['noteId'],
+              },
+            },
+          },
+          required: ['updates'],
+        },
+      },
+      {
         name: 'delete_notes',
         description: 'Delete one or more notes from your AiDD account',
         annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
@@ -729,7 +951,7 @@ export class AiDDMCPServer {
       },
       {
         name: 'update_action_item',
-        description: 'Update an existing action item in your AiDD account',
+        description: 'Update an existing action item in your AiDD account. Use update_action_items for bulk updates.',
         annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
         inputSchema: {
           type: 'object',
@@ -737,13 +959,42 @@ export class AiDDMCPServer {
             actionItemId: { type: 'string', description: 'ID of the action item to update' },
             title: { type: 'string', description: 'New title for the action item' },
             description: { type: 'string', description: 'New description for the action item' },
-            priority: { type: 'string', enum: ['low', 'medium', 'high', 'urgent'], description: 'New priority for the action item' },
+            priority: { type: 'string', enum: ['low', 'medium', 'high', 'urgent', 'critical'], description: 'New priority for the action item' },
             dueDate: { type: 'string', description: 'New due date in ISO format (or null to clear)' },
             tags: { type: 'array', items: { type: 'string' }, description: 'New tags for the action item' },
             category: { type: 'string', enum: ['work', 'personal'], description: 'New category for the action item' },
             isCompleted: { type: 'boolean', description: 'Mark the action item as completed or not' },
           },
           required: ['actionItemId'],
+        },
+      },
+      {
+        name: 'update_action_items',
+        description: 'Update multiple action items in your AiDD account.',
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+        inputSchema: {
+          type: 'object',
+          properties: {
+            updates: {
+              type: 'array',
+              description: 'List of action item updates with actionItemId and fields to change.',
+              items: {
+                type: 'object',
+                properties: {
+                  actionItemId: { type: 'string', description: 'ID of the action item to update' },
+                  title: { type: 'string', description: 'New title for the action item' },
+                  description: { type: 'string', description: 'New description for the action item' },
+                  priority: { type: 'string', enum: ['low', 'medium', 'high', 'urgent', 'critical'], description: 'New priority for the action item' },
+                  dueDate: { type: 'string', description: 'New due date in ISO format (or null to clear)' },
+                  tags: { type: 'array', items: { type: 'string' }, description: 'New tags for the action item' },
+                  category: { type: 'string', enum: ['work', 'personal'], description: 'New category for the action item' },
+                  isCompleted: { type: 'boolean', description: 'Mark the action item as completed or not' },
+                },
+                required: ['actionItemId'],
+              },
+            },
+          },
+          required: ['updates'],
         },
       },
       {
@@ -758,7 +1009,7 @@ export class AiDDMCPServer {
       },
       {
         name: 'update_task',
-        description: 'Update an existing task in your AiDD account',
+        description: 'Update an existing task in your AiDD account. Use update_tasks for bulk updates.',
         annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
         inputSchema: {
           type: 'object',
@@ -777,6 +1028,36 @@ export class AiDDMCPServer {
         },
         _meta: {
           'openai/widgetAccessible': true,  // Enable widget-initiated calls (for completing tasks)
+        },
+      },
+      {
+        name: 'update_tasks',
+        description: 'Update multiple tasks in your AiDD account.',
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+        inputSchema: {
+          type: 'object',
+          properties: {
+            updates: {
+              type: 'array',
+              description: 'List of task updates with taskId and fields to change.',
+              items: {
+                type: 'object',
+                properties: {
+                  taskId: { type: 'string', description: 'ID of the task to update' },
+                  title: { type: 'string', description: 'New title for the task' },
+                  description: { type: 'string', description: 'New description for the task' },
+                  estimatedTime: { type: 'number', description: 'New estimated time in minutes' },
+                  energyRequired: { type: 'string', enum: ['low', 'medium', 'high'], description: 'New energy level required' },
+                  taskType: { type: 'string', enum: ['quick_win', 'focus_required', 'collaborative', 'creative', 'administrative'], description: 'New task type' },
+                  dueDate: { type: 'string', description: 'New due date in ISO format (or null to clear)' },
+                  tags: { type: 'array', items: { type: 'string' }, description: 'New tags for the task' },
+                  isCompleted: { type: 'boolean', description: 'Mark the task as completed or not' },
+                },
+                required: ['taskId'],
+              },
+            },
+          },
+          required: ['updates'],
         },
       },
       {
@@ -952,16 +1233,126 @@ export class AiDDMCPServer {
     try {
       await this.ensureE2EInitialized();
 
-      // Encrypt note data if E2E is enabled
-      const noteData = this.e2eEnabled ? this.encryptNoteForSync(args) : args;
-
-      const note = await this.backendClient.createNote(noteData);
+      const note = await this.backendClient.createNote(args);
 
       // Use original args for display since we know the plaintext
-      const response = `✅ **Note Created**\n\n**Title:** ${args.title}\n**ID:** ${note.id}\n**Category:** ${args.category || 'personal'}\n${args.tags && args.tags.length > 0 ? `**Tags:** ${args.tags.join(', ')}` : ''}\n${this.e2eEnabled ? '🔐 **E2E Encrypted**' : ''}\n\nThe note has been saved to your AiDD account.`;
+      const response = `✅ **Note Created**\n\n**Title:** ${args.title}\n**ID:** ${note.id}\n**Category:** ${args.category || 'personal'}\n${args.tags && args.tags.length > 0 ? `**Tags:** ${args.tags.join(', ')}` : ''}\n\nThe note has been saved to your AiDD account.`;
       return { content: [{ type: 'text', text: response } as TextContent] };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error creating note: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
+    }
+  }
+
+  private async handleCreateNotes(args: any) {
+    try {
+      await this.ensureE2EInitialized();
+
+      const { notes } = args;
+      if (!notes || !Array.isArray(notes) || notes.length === 0) {
+        throw new Error('Notes array is required');
+      }
+
+      const errors: Array<{ index: number; title?: string; error: string }> = [];
+      const seenKeys = new Set<string>();
+      const notesToCreate: any[] = [];
+
+      notes.forEach((note: any, index: number) => {
+        const title = typeof note?.title === 'string' ? note.title.trim() : '';
+        const content = typeof note?.content === 'string' ? note.content : '';
+        if (!title || !content) {
+          errors.push({ index, title: title || undefined, error: 'Missing title or content' });
+          return;
+        }
+
+        const normalizedCategory = note.category === 'work' ? 'work' : 'personal';
+        const sourceIdInput = typeof note.sourceId === 'string' ? note.sourceId.trim() : '';
+        const importKey = this.buildNoteImportKey({ title, content, category: normalizedCategory });
+        const sourceId = sourceIdInput || this.buildNoteSourceId(importKey);
+        const dedupeKey = sourceId;
+
+        if (seenKeys.has(dedupeKey)) {
+          errors.push({ index, title, error: 'Duplicate item in request' });
+          return;
+        }
+        seenKeys.add(dedupeKey);
+
+        notesToCreate.push({
+          title,
+          content,
+          tags: Array.isArray(note.tags) ? note.tags : [],
+          category: normalizedCategory,
+          sourceId,
+        });
+      });
+
+      if (notesToCreate.length === 0) {
+        return {
+          structuredContent: {
+            success: false,
+            createdCount: 0,
+            errorCount: errors.length,
+            noteIds: [],
+            notes: [],
+            errors,
+          },
+          content: [{ type: 'text', text: `❌ Error creating notes: no valid notes to create` } as TextContent],
+        };
+      }
+
+      const savedNotes: any[] = [];
+      let createdCount = 0;
+      let updatedCount = 0;
+      const chunkSize = 100;
+      for (let i = 0; i < notesToCreate.length; i += chunkSize) {
+        const chunk = notesToCreate.slice(i, i + chunkSize);
+        const result = await this.backendClient.saveNotes(chunk as any);
+        const resultAny = result as any;
+        savedNotes.push(...(resultAny.notes || []));
+        createdCount += typeof resultAny.created === 'number' ? resultAny.created : (resultAny.count || chunk.length);
+        updatedCount += typeof resultAny.updated === 'number' ? resultAny.updated : 0;
+      }
+
+      const errorCount = errors.length;
+      const noteIds = savedNotes.map((note: any) => note.id).filter(Boolean);
+
+      let response = `✅ **Notes Created**\n\n**Created:** ${createdCount}`;
+      if (updatedCount > 0) {
+        response += `\n**Updated:** ${updatedCount}`;
+      }
+      if (errorCount > 0) {
+        response += `\n**Failed:** ${errorCount}`;
+      }
+      if (noteIds.length > 0) {
+        response += `\n\n**Note IDs:**\n${JSON.stringify(noteIds)}`;
+      }
+      if (errorCount > 0) {
+        response += `\n\n⚠️ Some notes failed validation. Check the error list in structured content to retry.`;
+      }
+
+      return {
+        structuredContent: {
+          success: errorCount === 0,
+          createdCount,
+          updatedCount,
+          errorCount,
+          noteIds,
+          notes: savedNotes,
+          errors,
+        },
+        content: [{ type: 'text', text: response.trim() } as TextContent],
+      };
+    } catch (error) {
+      return {
+        structuredContent: {
+          success: false,
+          createdCount: 0,
+          errorCount: 0,
+          noteIds: [],
+          notes: [],
+          errors: [{ index: -1, error: error instanceof Error ? error.message : 'Unknown error' }],
+        },
+        content: [{ type: 'text', text: `❌ Error creating notes: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent],
+      };
     }
   }
 
@@ -1012,7 +1403,7 @@ export class AiDDMCPServer {
       const hasEncryptedItems = encryptedItemCount > 0;
 
       const itemsList = structuredItems.map((item: any, i: number) => {
-        const priorityEmoji = item.priority === 'critical' ? '🔴' : item.priority === 'high' ? '🟠' : item.priority === 'medium' ? '🟡' : '🟢';
+        const priorityEmoji = item.priority === 'critical' || item.priority === 'urgent' ? '🔴' : item.priority === 'high' ? '🟠' : item.priority === 'medium' ? '🟡' : '🟢';
         const statusIcon = item.status === 'completed' ? '✅' : item.derivedTaskCount > 0 ? '🔄' : '⬜';
         return `${offset + i + 1}. ${statusIcon} **${item.title}** (ID: \`${item.id}\`) ${priorityEmoji}${item.dueDate ? ` 📅${new Date(item.dueDate).toLocaleDateString()}` : ''}${item.derivedTaskCount > 0 ? ` → ${item.derivedTaskCount} tasks` : ''}`;
       }).join('\n');
@@ -1067,7 +1458,7 @@ export class AiDDMCPServer {
       const derivedTasksSection = (item as any).derivedTasks && (item as any).derivedTasks.length > 0
         ? `\n\n**Derived Tasks (${(item as any).derivedTaskCount}):**\n${(item as any).derivedTasks.map((task: any, i: number) => `${i + 1}. **${task.title}**\n   • Task ID: ${task.id}\n   ${task.estimatedTime ? `• Est. Time: ${task.estimatedTime} min` : ''}\n   ${task.energyRequired ? `• Energy: ${task.energyRequired}` : ''}`).join('\n')}`
         : '';
-      const sourceNoteSection = item.sourceNoteId
+      const sourceNoteSection = typeof item.sourceNoteId === 'string' && item.sourceNoteId.length > 0 && !item.sourceNoteId.startsWith('mcp-import:')
         ? `\n**Source Note ID:** ${item.sourceNoteId}`
         : '';
       const response = `📋 **Action Item Details**\n\n**Title:** ${item.title}\n**ID:** ${item.id}\n**Priority:** ${item.priority}\n**Category:** ${item.category}\n${item.dueDate ? `**Due Date:** ${new Date(item.dueDate).toLocaleDateString()}\n` : ''}${item.tags && item.tags.length > 0 ? `**Tags:** ${item.tags.join(', ')}\n` : ''}${sourceNoteSection}\n\n**Description:**\n${item.description || 'No description'}${derivedTasksSection}`;
@@ -1082,18 +1473,147 @@ export class AiDDMCPServer {
       await this.ensureE2EInitialized();
 
       const { title, description, priority = 'medium', dueDate, tags = [], category = 'work' } = args;
-      const actionItemData = { title, description: description || '', priority, dueDate, tags, category, confidence: 1.0 };
+      const normalizedPriority = this.normalizeActionItemPriority(priority);
+      const normalizedCategory: 'work' | 'personal' = category === 'personal' ? 'personal' : 'work';
+      const actionItemData = {
+        title,
+        description: description || '',
+        priority: normalizedPriority,
+        dueDate,
+        tags,
+        category: normalizedCategory,
+        confidence: 1.0,
+      };
 
-      // Encrypt action item data if E2E is enabled
-      const dataToSend = this.e2eEnabled ? this.encryptActionItemForSync(actionItemData) : actionItemData;
-
-      const createdItem = await this.backendClient.createActionItem(dataToSend);
+      const createdItem = await this.backendClient.createActionItem(actionItemData);
 
       // Use original args for display since we know the plaintext
-      const response = `✅ **Action Item Created**\n\n**Title:** ${title}\n**ID:** ${createdItem.id}\n**Priority:** ${priority}\n**Category:** ${category}\n${dueDate ? `**Due Date:** ${dueDate}` : ''}\n${tags && tags.length > 0 ? `**Tags:** ${tags.join(', ')}` : ''}\n${this.e2eEnabled ? '🔐 **E2E Encrypted**' : ''}\n\nThe action item has been saved to your AiDD account.`;
+      const response = `✅ **Action Item Created**\n\n**Title:** ${title}\n**ID:** ${createdItem.id}\n**Priority:** ${normalizedPriority}\n**Category:** ${normalizedCategory}\n${dueDate ? `**Due Date:** ${dueDate}` : ''}\n${tags && tags.length > 0 ? `**Tags:** ${tags.join(', ')}` : ''}\n\nThe action item has been saved to your AiDD account.`;
       return { content: [{ type: 'text', text: response } as TextContent] };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error creating action item: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
+    }
+  }
+
+  private async handleCreateActionItems(args: any) {
+    try {
+      await this.ensureE2EInitialized();
+
+      const { items } = args;
+      if (!items || !Array.isArray(items) || items.length === 0) {
+        throw new Error('Items array is required');
+      }
+
+      const errors: Array<{ index: number; title?: string; error: string }> = [];
+      const seenKeys = new Set<string>();
+      const actionItemsToCreate: any[] = [];
+
+      items.forEach((item: any, index: number) => {
+        const title = typeof item?.title === 'string' ? item.title.trim() : '';
+        if (!title) {
+          errors.push({ index, error: 'Missing title' });
+          return;
+        }
+
+        const description = typeof item.description === 'string' ? item.description : '';
+        const normalizedPriority = this.normalizeActionItemPriority(item.priority);
+        const normalizedCategory = item.category === 'personal' ? 'personal' : 'work';
+        const sourceNoteIdInput = typeof item.sourceNoteId === 'string' ? item.sourceNoteId.trim() : '';
+        const importKey = this.buildActionItemImportKey({
+          title,
+          description,
+          category: normalizedCategory,
+          dueDate: item.dueDate,
+        });
+        const sourceNoteId = sourceNoteIdInput || this.buildActionItemSourceNoteId(importKey);
+        const dedupeKey = `${sourceNoteId}:${this.normalizeImportValue(title)}`;
+
+        if (seenKeys.has(dedupeKey)) {
+          errors.push({ index, title, error: 'Duplicate item in request' });
+          return;
+        }
+        seenKeys.add(dedupeKey);
+
+        actionItemsToCreate.push({
+          title,
+          description,
+          priority: normalizedPriority,
+          dueDate: item.dueDate,
+          tags: Array.isArray(item.tags) ? item.tags : [],
+          category: normalizedCategory,
+          confidence: 1.0,
+          sourceNoteId,
+        });
+      });
+
+      if (actionItemsToCreate.length === 0) {
+        return {
+          structuredContent: {
+            success: false,
+            createdCount: 0,
+            errorCount: errors.length,
+            actionItemIds: [],
+            actionItems: [],
+            errors,
+          },
+          content: [{ type: 'text', text: `❌ Error creating action items: no valid items to create` } as TextContent],
+        };
+      }
+
+      const savedItems: any[] = [];
+      let createdCount = 0;
+      let updatedCount = 0;
+      const chunkSize = 100;
+      for (let i = 0; i < actionItemsToCreate.length; i += chunkSize) {
+        const chunk = actionItemsToCreate.slice(i, i + chunkSize);
+        const result = await this.backendClient.saveActionItems(chunk as any);
+        const resultAny = result as any;
+        savedItems.push(...(resultAny.actionItems || []));
+        createdCount += typeof resultAny.created === 'number' ? resultAny.created : (resultAny.count || chunk.length);
+        updatedCount += typeof resultAny.updated === 'number' ? resultAny.updated : 0;
+      }
+
+      const errorCount = errors.length;
+      const actionItemIds = savedItems.map((item: any) => item.id).filter(Boolean);
+
+      let response = `✅ **Action Items Created**\n\n**Created:** ${createdCount}`;
+      if (updatedCount > 0) {
+        response += `\n**Updated:** ${updatedCount}`;
+      }
+      if (errorCount > 0) {
+        response += `\n**Failed:** ${errorCount}`;
+      }
+      if (actionItemIds.length > 0) {
+        response += `\n\n**Action Item IDs:**\n${JSON.stringify(actionItemIds)}`;
+      }
+      if (errorCount > 0) {
+        response += `\n\n⚠️ Some items failed validation. Check the error list in structured content to retry.`;
+      }
+
+      return {
+        structuredContent: {
+          success: errorCount === 0,
+          createdCount,
+          updatedCount,
+          errorCount,
+          actionItemIds,
+          actionItems: savedItems,
+          errors,
+        },
+        content: [{ type: 'text', text: response.trim() } as TextContent],
+      };
+    } catch (error) {
+      return {
+        structuredContent: {
+          success: false,
+          createdCount: 0,
+          errorCount: 0,
+          actionItemIds: [],
+          actionItems: [],
+          errors: [{ index: -1, error: error instanceof Error ? error.message : 'Unknown error' }],
+        },
+        content: [{ type: 'text', text: `❌ Error creating action items: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent],
+      };
     }
   }
 
@@ -2022,16 +2542,151 @@ export class AiDDMCPServer {
         taskData.taskType = taskType;
       }
 
-      // Encrypt task data if E2E is enabled
-      const dataToSend = this.e2eEnabled ? this.encryptTaskForSync(taskData) : taskData;
-
-      const createdTask = await this.backendClient.createTask(dataToSend);
+      const createdTask = await this.backendClient.createTask(taskData as any);
 
       // Use original args for display since we know the plaintext
-      const response = `✅ **Task Created**\n\n**Title:** ${title}\n**ID:** ${createdTask.id}\n**Estimated Time:** ${estimatedTime} minutes\n**Energy Required:** ${energyRequired}\n${taskType ? `**Task Type:** ${taskType}\n` : ''}${dueDate ? `**Due Date:** ${dueDate}` : ''}\n${tags && tags.length > 0 ? `**Tags:** ${tags.join(', ')}` : ''}\n${this.e2eEnabled ? '🔐 **E2E Encrypted**' : ''}\n\nThe task has been saved to your AiDD account.`;
+      const response = `✅ **Task Created**\n\n**Title:** ${title}\n**ID:** ${createdTask.id}\n**Estimated Time:** ${estimatedTime} minutes\n**Energy Required:** ${energyRequired}\n${taskType ? `**Task Type:** ${taskType}\n` : ''}${dueDate ? `**Due Date:** ${dueDate}` : ''}\n${tags && tags.length > 0 ? `**Tags:** ${tags.join(', ')}` : ''}\n\nThe task has been saved to your AiDD account.`;
       return { content: [{ type: 'text', text: response } as TextContent] };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error creating task: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
+    }
+  }
+
+  private async handleCreateTasks(args: any) {
+    try {
+      await this.ensureE2EInitialized();
+
+      const { tasks } = args;
+      if (!tasks || !Array.isArray(tasks) || tasks.length === 0) {
+        throw new Error('Tasks array is required');
+      }
+
+      const errors: Array<{ index: number; title?: string; error: string }> = [];
+      const allowedEnergy = new Set(['low', 'medium', 'high']);
+      const allowedTaskTypes = new Set(['quick_win', 'focus_required', 'collaborative', 'creative', 'administrative']);
+      const seenKeys = new Set<string>();
+      const tasksToCreate: any[] = [];
+
+      tasks.forEach((task: any, index: number) => {
+        const title = typeof task?.title === 'string' ? task.title.trim() : '';
+        if (!title) {
+          errors.push({ index, error: 'Missing title' });
+          return;
+        }
+
+        const estimatedTime = typeof task.estimatedTime === 'number' ? task.estimatedTime : 15;
+        const energyRequired = typeof task.energyRequired === 'string' && allowedEnergy.has(task.energyRequired)
+          ? task.energyRequired
+          : 'medium';
+        const taskType = typeof task.taskType === 'string' && allowedTaskTypes.has(task.taskType)
+          ? task.taskType
+          : undefined;
+        const description = typeof task.description === 'string' ? task.description : '';
+        const sourceIdInput = typeof task.sourceId === 'string' ? task.sourceId.trim() : '';
+        const importKey = this.buildTaskImportKey({
+          title,
+          description,
+          estimatedTime,
+          energyRequired,
+          taskType,
+          dueDate: task.dueDate,
+        });
+        const sourceId = sourceIdInput || this.buildTaskSourceId(importKey);
+        const dedupeKey = sourceId;
+
+        if (seenKeys.has(dedupeKey)) {
+          errors.push({ index, title, error: 'Duplicate item in request' });
+          return;
+        }
+        seenKeys.add(dedupeKey);
+
+        const tags = Array.isArray(task.tags) ? task.tags : [];
+        const taskData: Record<string, any> = {
+          actionItemId: '',
+          taskOrder: 1,
+          title,
+          description,
+          estimatedTime,
+          energyRequired,
+          tags,
+          dependsOnTaskOrders: [],
+          dueDate: task.dueDate,
+          sourceId,
+        };
+        if (taskType) {
+          taskData.taskType = taskType;
+        }
+        tasksToCreate.push(taskData);
+      });
+
+      if (tasksToCreate.length === 0) {
+        return {
+          structuredContent: {
+            success: false,
+            createdCount: 0,
+            errorCount: errors.length,
+            taskIds: [],
+            tasks: [],
+            errors,
+          },
+          content: [{ type: 'text', text: `❌ Error creating tasks: no valid tasks to create` } as TextContent],
+        };
+      }
+
+      const savedTasks: any[] = [];
+      let createdCount = 0;
+      let updatedCount = 0;
+      const chunkSize = 100;
+      for (let i = 0; i < tasksToCreate.length; i += chunkSize) {
+        const chunk = tasksToCreate.slice(i, i + chunkSize);
+        const result = await this.backendClient.saveTasks(chunk as any);
+        const resultAny = result as any;
+        savedTasks.push(...(resultAny.tasks || []));
+        createdCount += typeof resultAny.newCount === 'number' ? resultAny.newCount : (resultAny.count || chunk.length);
+        updatedCount += typeof resultAny.updatedCount === 'number' ? resultAny.updatedCount : 0;
+      }
+
+      const errorCount = errors.length;
+      const taskIds = savedTasks.map((task: any) => task.id).filter(Boolean);
+
+      let response = `✅ **Tasks Created**\n\n**Created:** ${createdCount}`;
+      if (updatedCount > 0) {
+        response += `\n**Updated:** ${updatedCount}`;
+      }
+      if (errorCount > 0) {
+        response += `\n**Failed:** ${errorCount}`;
+      }
+      if (taskIds.length > 0) {
+        response += `\n\n**Task IDs:**\n${JSON.stringify(taskIds)}`;
+      }
+      if (errorCount > 0) {
+        response += `\n\n⚠️ Some tasks failed validation. Check the error list in structured content to retry.`;
+      }
+
+      return {
+        structuredContent: {
+          success: errorCount === 0,
+          createdCount,
+          updatedCount,
+          errorCount,
+          taskIds,
+          tasks: savedTasks,
+          errors,
+        },
+        content: [{ type: 'text', text: response.trim() } as TextContent],
+      };
+    } catch (error) {
+      return {
+        structuredContent: {
+          success: false,
+          createdCount: 0,
+          errorCount: 0,
+          taskIds: [],
+          tasks: [],
+          errors: [{ index: -1, error: error instanceof Error ? error.message : 'Unknown error' }],
+        },
+        content: [{ type: 'text', text: `❌ Error creating tasks: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent],
+      };
     }
   }
 
@@ -2240,14 +2895,28 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
   private async handleCheckAIJobs(args: any) {
     try {
       const { jobId, includeCompleted = false } = args;
+      const normalizeJobForWidget = (job: any) => {
+        const progressValue = typeof job.progress === 'number'
+          ? (job.progress > 1 ? job.progress / 100 : job.progress)
+          : job.progress;
+        return {
+          ...job,
+          progress: progressValue,
+          progressMessage: job.progressMessage ?? job.message,
+        };
+      };
 
       // If specific job ID provided, get that job's status
       if (jobId) {
         const job = await this.backendClient.getJobStatus(jobId);
         if (!job) {
-          return { content: [{ type: 'text', text: `❌ **Job Not Found**\n\nNo job found with ID: \`${jobId}\`\n\nThis job may have expired (jobs are kept for 24 hours) or the ID is incorrect.` } as TextContent] };
+          return {
+            structuredContent: { success: false, jobs: [], error: 'Job not found', jobId },
+            content: [{ type: 'text', text: `❌ **Job Not Found**\n\nNo job found with ID: \`${jobId}\`\n\nThis job may have expired (jobs are kept for 24 hours) or the ID is incorrect.` } as TextContent],
+          };
         }
 
+        const normalizedJob = normalizeJobForWidget(job);
         const statusEmoji = job.status === 'completed' ? '✅' : job.status === 'processing' ? '⏳' : job.status === 'failed' ? '❌' : '📋';
         const typeLabels: Record<string, string> = {
           'score_tasks': 'Task Scoring',
@@ -2300,14 +2969,21 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
           }
         }
 
-        return { content: [{ type: 'text', text: response.trim() } as TextContent] };
+        return {
+          structuredContent: { success: true, jobs: [normalizedJob] },
+          content: [{ type: 'text', text: response.trim() } as TextContent],
+        };
       }
 
       // List all jobs
       const jobs = await this.backendClient.listJobs(includeCompleted);
+      const normalizedJobs = jobs.map(normalizeJobForWidget);
 
       if (!jobs || jobs.length === 0) {
-        return { content: [{ type: 'text', text: `📋 **No Active AI Jobs**\n\nYou don't have any ${includeCompleted ? '' : 'active '}AI processing jobs.\n\n**To start a job:**\n• Use \`extract_action_items\` to extract action items from notes\n• Use \`convert_to_tasks\` to convert action items to tasks\n• Use \`score_tasks\` to prioritize your tasks` } as TextContent] };
+        return {
+          structuredContent: { success: true, jobs: [] },
+          content: [{ type: 'text', text: `📋 **No Active AI Jobs**\n\nYou don't have any ${includeCompleted ? '' : 'active '}AI processing jobs.\n\n**To start a job:**\n• Use \`extract_action_items\` to extract action items from notes\n• Use \`convert_to_tasks\` to convert action items to tasks\n• Use \`score_tasks\` to prioritize your tasks` } as TextContent],
+        };
       }
 
       const typeLabels: Record<string, string> = {
@@ -2346,10 +3022,16 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
 
       response += `**💡 Tip:** Use \`check_ai_jobs\` with a specific \`jobId\` to get detailed status.`;
 
-      return { content: [{ type: 'text', text: response.trim() } as TextContent] };
+      return {
+        structuredContent: { success: true, jobs: normalizedJobs },
+        content: [{ type: 'text', text: response.trim() } as TextContent],
+      };
 
     } catch (error) {
-      return { content: [{ type: 'text', text: `❌ **Error checking jobs:** ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
+      return {
+        structuredContent: { success: false, jobs: [], error: error instanceof Error ? error.message : 'Unknown error' },
+        content: [{ type: 'text', text: `❌ **Error checking jobs:** ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent],
+      };
     }
   }
 
@@ -2362,6 +3044,88 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
       return { content: [{ type: 'text', text: response.trim() } as TextContent] };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ **Error updating note:** ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent], isError: true };
+    }
+  }
+
+  private async handleUpdateNotes(args: any) {
+    try {
+      const { updates } = args;
+      if (!updates || !Array.isArray(updates) || updates.length === 0) {
+        throw new Error('Updates array is required');
+      }
+
+      const updatedNotes: any[] = [];
+      const errors: Array<{ index: number; noteId?: string; error: string }> = [];
+
+      for (let i = 0; i < updates.length; i += 1) {
+        const update = updates[i] || {};
+        const noteId = update.noteId;
+        if (!noteId) {
+          errors.push({ index: i, error: 'Missing noteId' });
+          continue;
+        }
+
+        const payload: Record<string, any> = {};
+        if (typeof update.title === 'string') payload.title = update.title;
+        if (typeof update.content === 'string') payload.content = update.content;
+        if (Array.isArray(update.tags)) payload.tags = update.tags;
+        if (typeof update.category === 'string') payload.category = update.category;
+
+        if (Object.keys(payload).length === 0) {
+          errors.push({ index: i, noteId, error: 'No fields to update' });
+          continue;
+        }
+
+        try {
+          const updatedNote = await this.backendClient.updateNote(noteId, payload);
+          updatedNotes.push(updatedNote);
+        } catch (noteError) {
+          errors.push({
+            index: i,
+            noteId,
+            error: noteError instanceof Error ? noteError.message : 'Unknown error',
+          });
+        }
+      }
+
+      const updatedCount = updatedNotes.length;
+      const errorCount = errors.length;
+      const noteIds = updatedNotes.map((note: any) => note.id).filter(Boolean);
+
+      let response = `✅ **Notes Updated**\n\n**Updated:** ${updatedCount}`;
+      if (errorCount > 0) {
+        response += `\n**Failed:** ${errorCount}`;
+      }
+      if (noteIds.length > 0) {
+        response += `\n\n**Note IDs:**\n${JSON.stringify(noteIds)}`;
+      }
+      if (errorCount > 0) {
+        response += `\n\n⚠️ Some updates failed. Check the error list in structured content to retry.`;
+      }
+
+      return {
+        structuredContent: {
+          success: errorCount === 0,
+          updatedCount,
+          errorCount,
+          noteIds,
+          notes: updatedNotes,
+          errors,
+        },
+        content: [{ type: 'text', text: response.trim() } as TextContent],
+      };
+    } catch (error) {
+      return {
+        structuredContent: {
+          success: false,
+          updatedCount: 0,
+          errorCount: 0,
+          noteIds: [],
+          notes: [],
+          errors: [{ index: -1, error: error instanceof Error ? error.message : 'Unknown error' }],
+        },
+        content: [{ type: 'text', text: `❌ **Error updating notes:** ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent],
+      };
     }
   }
 
@@ -2382,11 +3146,99 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
     try {
       const { actionItemId, ...updates } = args;
       if (!actionItemId) throw new Error('Action item ID is required');
+      if (updates.priority !== undefined) {
+        updates.priority = this.normalizeActionItemPriority(updates.priority);
+      }
       const updatedItem = await this.backendClient.updateActionItem(actionItemId, updates);
       const response = `✅ **Action Item Updated**\n\n**Updated item:** ${updatedItem.title}\n• ID: ${updatedItem.id}\n• Priority: ${updatedItem.priority}\n• Category: ${updatedItem.category || 'work'}\n${updatedItem.isCompleted ? '• Status: ✅ Completed' : '• Status: Pending'}\n• Updated: ${new Date(updatedItem.updatedAt).toLocaleString()}\n${updatedItem.dueDate ? `• Due: ${new Date(updatedItem.dueDate).toLocaleDateString()}` : ''}\n${updatedItem.tags && updatedItem.tags.length > 0 ? `• Tags: ${updatedItem.tags.join(', ')}` : ''}`;
       return { content: [{ type: 'text', text: response.trim() } as TextContent] };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ **Error updating action item:** ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent], isError: true };
+    }
+  }
+
+  private async handleUpdateActionItems(args: any) {
+    try {
+      const { updates } = args;
+      if (!updates || !Array.isArray(updates) || updates.length === 0) {
+        throw new Error('Updates array is required');
+      }
+
+      const updatedItems: any[] = [];
+      const errors: Array<{ index: number; actionItemId?: string; error: string }> = [];
+
+      for (let i = 0; i < updates.length; i += 1) {
+        const update = updates[i] || {};
+        const actionItemId = update.actionItemId;
+        if (!actionItemId) {
+          errors.push({ index: i, error: 'Missing actionItemId' });
+          continue;
+        }
+
+        const payload: Record<string, any> = {};
+        if (typeof update.title === 'string') payload.title = update.title;
+        if (typeof update.description === 'string') payload.description = update.description;
+        if (typeof update.priority === 'string') payload.priority = this.normalizeActionItemPriority(update.priority);
+        if (update.dueDate !== undefined) payload.dueDate = update.dueDate;
+        if (Array.isArray(update.tags)) payload.tags = update.tags;
+        if (typeof update.category === 'string') payload.category = update.category;
+        if (typeof update.isCompleted === 'boolean') payload.isCompleted = update.isCompleted;
+
+        if (Object.keys(payload).length === 0) {
+          errors.push({ index: i, actionItemId, error: 'No fields to update' });
+          continue;
+        }
+
+        try {
+          const updatedItem = await this.backendClient.updateActionItem(actionItemId, payload);
+          updatedItems.push(updatedItem);
+        } catch (itemError) {
+          errors.push({
+            index: i,
+            actionItemId,
+            error: itemError instanceof Error ? itemError.message : 'Unknown error',
+          });
+        }
+      }
+
+      const updatedCount = updatedItems.length;
+      const errorCount = errors.length;
+      const actionItemIds = updatedItems.map((item: any) => item.id).filter(Boolean);
+
+      let response = `✅ **Action Items Updated**\n\n**Updated:** ${updatedCount}`;
+      if (errorCount > 0) {
+        response += `\n**Failed:** ${errorCount}`;
+      }
+      if (actionItemIds.length > 0) {
+        response += `\n\n**Action Item IDs:**\n${JSON.stringify(actionItemIds)}`;
+      }
+      if (errorCount > 0) {
+        response += `\n\n⚠️ Some updates failed. Check the error list in structured content to retry.`;
+      }
+
+      return {
+        structuredContent: {
+          success: errorCount === 0,
+          updatedCount,
+          errorCount,
+          actionItemIds,
+          actionItems: updatedItems,
+          errors,
+        },
+        content: [{ type: 'text', text: response.trim() } as TextContent],
+      };
+    } catch (error) {
+      return {
+        structuredContent: {
+          success: false,
+          updatedCount: 0,
+          errorCount: 0,
+          actionItemIds: [],
+          actionItems: [],
+          errors: [{ index: -1, error: error instanceof Error ? error.message : 'Unknown error' }],
+        },
+        content: [{ type: 'text', text: `❌ **Error updating action items:** ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent],
+      };
     }
   }
 
@@ -2447,6 +3299,92 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
       return { content: [{ type: 'text', text: response.trim() } as TextContent] };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ **Error updating task:** ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent], isError: true };
+    }
+  }
+
+  private async handleUpdateTasks(args: any) {
+    try {
+      const { updates } = args;
+      if (!updates || !Array.isArray(updates) || updates.length === 0) {
+        throw new Error('Updates array is required');
+      }
+
+      const updatedTasks: any[] = [];
+      const errors: Array<{ index: number; taskId?: string; error: string }> = [];
+
+      for (let i = 0; i < updates.length; i += 1) {
+        const update = updates[i] || {};
+        const taskId = update.taskId;
+        if (!taskId) {
+          errors.push({ index: i, error: 'Missing taskId' });
+          continue;
+        }
+
+        const payload: Record<string, any> = {};
+        if (typeof update.title === 'string') payload.title = update.title;
+        if (typeof update.description === 'string') payload.description = update.description;
+        if (typeof update.estimatedTime === 'number') payload.estimatedTime = update.estimatedTime;
+        if (typeof update.energyRequired === 'string') payload.energyRequired = update.energyRequired;
+        if (typeof update.taskType === 'string') payload.taskType = update.taskType;
+        if (update.dueDate !== undefined) payload.dueDate = update.dueDate;
+        if (Array.isArray(update.tags)) payload.tags = update.tags;
+        if (typeof update.isCompleted === 'boolean') payload.isCompleted = update.isCompleted;
+
+        if (Object.keys(payload).length === 0) {
+          errors.push({ index: i, taskId, error: 'No fields to update' });
+          continue;
+        }
+
+        try {
+          const updatedTask = await this.backendClient.updateTask(taskId, payload);
+          updatedTasks.push(updatedTask);
+        } catch (taskError) {
+          errors.push({
+            index: i,
+            taskId,
+            error: taskError instanceof Error ? taskError.message : 'Unknown error',
+          });
+        }
+      }
+
+      const updatedCount = updatedTasks.length;
+      const errorCount = errors.length;
+      const taskIds = updatedTasks.map((task: any) => task.id).filter(Boolean);
+
+      let response = `✅ **Tasks Updated**\n\n**Updated:** ${updatedCount}`;
+      if (errorCount > 0) {
+        response += `\n**Failed:** ${errorCount}`;
+      }
+      if (taskIds.length > 0) {
+        response += `\n\n**Task IDs:**\n${JSON.stringify(taskIds)}`;
+      }
+      if (errorCount > 0) {
+        response += `\n\n⚠️ Some updates failed. Check the error list in structured content to retry.`;
+      }
+
+      return {
+        structuredContent: {
+          success: errorCount === 0,
+          updatedCount,
+          errorCount,
+          taskIds,
+          tasks: updatedTasks,
+          errors,
+        },
+        content: [{ type: 'text', text: response.trim() } as TextContent],
+      };
+    } catch (error) {
+      return {
+        structuredContent: {
+          success: false,
+          updatedCount: 0,
+          errorCount: 0,
+          taskIds: [],
+          tasks: [],
+          errors: [{ index: -1, error: error instanceof Error ? error.message : 'Unknown error' }],
+        },
+        content: [{ type: 'text', text: `❌ **Error updating tasks:** ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent],
+      };
     }
   }
 
@@ -2569,7 +3507,7 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
 
 ---
 
-## 📝 NOTES TOOLS (5 tools)
+## 📝 NOTES TOOLS (7 tools)
 
 Notes are the starting point - capture ideas, meeting notes, emails, or any text.
 
@@ -2578,37 +3516,44 @@ Notes are the starting point - capture ideas, meeting notes, emails, or any text
 | \`list_notes\` | List all your notes | sortBy, order, limit, offset |
 | \`read_note\` | Read a specific note | noteId (required) |
 | \`create_note\` | Create a new note | title, content (required), tags, category |
+| \`create_notes\` | Create multiple notes | notes[] (required), title, content, tags |
 | \`update_note\` | Update an existing note | noteId (required), title, content, tags |
+| \`update_notes\` | Update multiple notes | updates[] (required), noteId, title, content, tags |
 | \`delete_notes\` | Delete notes | noteIds[] (required) |
 
 **Pro Tips:**
 - Notes are auto-enriched with extracted action items when you read them
 - Categories: \`work\` or \`personal\`
 - Use tags for easy filtering
+- Use \`create_notes\` / \`update_notes\` for bulk changes
 
 ---
 
-## 📋 ACTION ITEMS TOOLS (6 tools)
+## 📋 ACTION ITEMS TOOLS (8 tools)
 
-Action items are extracted from notes - specific things that need to be done.
+Action items can be created directly or extracted from notes.
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
 | \`list_action_items\` | List all action items | sortBy, order, limit, offset |
 | \`read_action_item\` | Read a specific action item | actionItemId (required) |
 | \`create_action_item\` | Create an action item | title (required), description, priority, dueDate, tags |
+| \`create_action_items\` | Create multiple action items | items[] (required), title, description, priority, dueDate, tags |
 | \`update_action_item\` | Update an action item | actionItemId (required), title, priority, isCompleted |
+| \`update_action_items\` | Update multiple action items | updates[] (required), actionItemId, title, priority |
 | \`delete_action_items\` | Delete action items | actionItemIds[] (required) |
 | \`extract_action_items\` 🤖 | **AI-powered** extraction from notes/text | source (required), noteIds[], text, extractionMode |
 
 **Pro Tips:**
-- Priority levels: \`low\`, \`medium\`, \`high\`, \`critical\`
+- Priority levels: \`low\`, \`medium\`, \`high\`, \`urgent\` (critical)
 - Extraction modes: \`quick\`, \`comprehensive\`, \`adhd-optimized\` (default)
 - Action items are auto-enriched with derived tasks
+- For explicit lists, use \`create_action_items\` to keep 1:1 entries
+- Use \`update_action_items\` for bulk edits
 
 ---
 
-## ✅ TASKS TOOLS (6 tools)
+## ✅ TASKS TOOLS (9 tools)
 
 Tasks are ADHD-optimized, bite-sized work items broken down from action items.
 
@@ -2617,7 +3562,9 @@ Tasks are ADHD-optimized, bite-sized work items broken down from action items.
 | \`list_tasks\` | List all tasks with AI scores | sortBy, order, limit, offset |
 | \`read_task\` | Read a specific task | taskId (required) |
 | \`create_task\` | Create a task | title (required), estimatedTime, energyRequired, taskType |
+| \`create_tasks\` | Create multiple tasks | tasks[] (required), title, estimatedTime, energyRequired |
 | \`update_task\` | Update a task | taskId (required), title, isCompleted, etc. |
+| \`update_tasks\` | Update multiple tasks | updates[] (required), taskId, title, isCompleted |
 | \`delete_tasks\` | Delete tasks | taskIds[] (required) |
 | \`convert_to_tasks\` 🤖 | **AI-powered** conversion from action items | actionItemIds[], breakdownMode, waitForCompletion |
 | \`score_tasks\` 🤖 | **AI-powered** prioritization | considerCurrentEnergy, timeOfDay, waitForCompletion |

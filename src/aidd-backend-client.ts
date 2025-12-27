@@ -14,7 +14,7 @@ interface ActionItem {
   id: string;
   title: string;
   description: string;
-  priority: 'low' | 'medium' | 'high' | 'critical';
+  priority: 'low' | 'medium' | 'high' | 'urgent' | 'critical';
   dueDate?: string;
   tags: string[];
   category: 'work' | 'personal';
@@ -42,6 +42,7 @@ interface ConvertedTask {
   dependsOnTaskOrders: number[];
   taskType: 'quick_win' | 'focus_required' | 'collaborative' | 'creative' | 'administrative';
   dueDate?: string;
+  sourceId?: string;
 }
 
 interface ScoredTask {
@@ -1452,7 +1453,7 @@ export class AiDDBackendClient extends EventEmitter {
     }
   }
 
-  async saveNotes(notes: Array<{ title: string; content: string; tags?: string[]; category?: string }>): Promise<{ success: boolean; count: number; notes: any[] }> {
+  async saveNotes(notes: Array<{ title: string; content: string; tags?: string[]; category?: string; sourceId?: string; source?: string }>): Promise<{ success: boolean; count: number; notes: any[] }> {
     if (!this.deviceToken) await this.authenticate();
     if (notes.length === 0) return { success: true, count: 0, notes: [] };
     try {
