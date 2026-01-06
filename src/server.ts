@@ -9,6 +9,185 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 const BASE_URL = process.env.BASE_URL || 'https://mcp.aidd.app';
 
+type TokenResponse = {
+  access_token: string;
+  refresh_token?: string;
+  token_type: 'Bearer';
+  expires_in: number;
+  scope?: string;
+};
+
+// Cache auth-code exchanges briefly to dedupe client retries and avoid backend rate limits.
+const TOKEN_CODE_CACHE_TTL_MS = 5 * 60 * 1000;
+const tokenCodeCache = new Map<string, { data: TokenResponse; expiresAt: number }>();
+const tokenCodeInFlight = new Map<string, Promise<TokenResponse>>();
+const REFRESH_TOKEN_CACHE_TTL_MS = 60 * 60 * 1000;
+const REFRESH_TOKEN_FAILURE_TTL_MS = 5 * 60 * 1000;
+const refreshTokenCache = new Map<string, { data: TokenResponse; expiresAt: number; tokenExpiresAt: number }>();
+const refreshTokenFailures = new Map<string, { status: number; data: any; expiresAt: number }>();
+const refreshTokenInFlight = new Map<string, Promise<TokenResponse>>();
+const knownRefreshTokens = new Map<string, number>();
+
+const normalizeExpiresIn = (value: unknown, fallbackSeconds = 3600): number => {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackSeconds;
+};
+
+const getCachedTokenResponse = (code: string): TokenResponse | null => {
+  const cached = tokenCodeCache.get(code);
+  if (!cached) return null;
+  if (cached.expiresAt < Date.now()) {
+    tokenCodeCache.delete(code);
+    return null;
+  }
+  return cached.data;
+};
+
+const getCachedRefreshResponse = (refreshToken: string): TokenResponse | null => {
+  const cached = refreshTokenCache.get(refreshToken);
+  if (!cached) return null;
+  const now = Date.now();
+  if (cached.expiresAt < now || cached.tokenExpiresAt < now) {
+    refreshTokenCache.delete(refreshToken);
+    return null;
+  }
+  const remainingSeconds = Math.max(0, Math.floor((cached.tokenExpiresAt - now) / 1000));
+  return { ...cached.data, expires_in: remainingSeconds };
+};
+
+const getRefreshFailure = (refreshToken: string): { status: number; data: any } | null => {
+  const cached = refreshTokenFailures.get(refreshToken);
+  if (!cached) return null;
+  if (cached.expiresAt < Date.now()) {
+    refreshTokenFailures.delete(refreshToken);
+    return null;
+  }
+  return { status: cached.status, data: cached.data };
+};
+
+const trackKnownRefreshToken = (refreshToken: string, ttlMs = REFRESH_TOKEN_CACHE_TTL_MS) => {
+  knownRefreshTokens.set(refreshToken, Date.now() + ttlMs);
+};
+
+const isKnownRefreshToken = (refreshToken: string): boolean => {
+  const expiresAt = knownRefreshTokens.get(refreshToken);
+  if (!expiresAt) return false;
+  if (expiresAt < Date.now()) {
+    knownRefreshTokens.delete(refreshToken);
+    return false;
+  }
+  return true;
+};
+
+type TokenMetrics = {
+  total: number;
+  authCode: number;
+  refresh: number;
+  authCodeCacheHit: number;
+  refreshCacheHit: number;
+  refreshFailureCacheHit: number;
+  authCodeInFlightHit: number;
+  refreshInFlightHit: number;
+  refreshKnown: number;
+  refreshUnknown: number;
+  backendErrors: number;
+  backend429: number;
+  backend429AuthCode: number;
+  backend429Refresh: number;
+};
+
+const TOKEN_METRICS_WINDOW_MS = 5 * 60 * 1000;
+const TOKEN_429_LOG_INTERVAL_MS = 60 * 1000;
+let tokenMetricsWindowStart = Date.now();
+let last429LogAt = 0;
+
+const createTokenMetrics = (): TokenMetrics => ({
+  total: 0,
+  authCode: 0,
+  refresh: 0,
+  authCodeCacheHit: 0,
+  refreshCacheHit: 0,
+  refreshFailureCacheHit: 0,
+  authCodeInFlightHit: 0,
+  refreshInFlightHit: 0,
+  refreshKnown: 0,
+  refreshUnknown: 0,
+  backendErrors: 0,
+  backend429: 0,
+  backend429AuthCode: 0,
+  backend429Refresh: 0,
+});
+
+let tokenMetrics = createTokenMetrics();
+
+const logTokenMetrics = (reason: string) => {
+  console.log('📈 Token metrics:', {
+    reason,
+    window_start: new Date(tokenMetricsWindowStart).toISOString(),
+    window_ms: TOKEN_METRICS_WINDOW_MS,
+    ...tokenMetrics,
+  });
+};
+
+const rotateTokenMetricsIfNeeded = (reason: string) => {
+  const now = Date.now();
+  if (now - tokenMetricsWindowStart >= TOKEN_METRICS_WINDOW_MS) {
+    logTokenMetrics(reason);
+    tokenMetricsWindowStart = now;
+    tokenMetrics = createTokenMetrics();
+  }
+};
+
+const recordTokenMetric = (key: keyof TokenMetrics, amount = 1) => {
+  rotateTokenMetricsIfNeeded('window');
+  tokenMetrics[key] += amount;
+};
+
+const recordBackend429 = (
+  grantType: 'authorization_code' | 'refresh_token' | 'unknown',
+  retryAfterSeconds?: number
+) => {
+  recordTokenMetric('backend429');
+  if (grantType === 'authorization_code') {
+    recordTokenMetric('backend429AuthCode');
+  } else if (grantType === 'refresh_token') {
+    recordTokenMetric('backend429Refresh');
+  }
+  const now = Date.now();
+  if (now - last429LogAt >= TOKEN_429_LOG_INTERVAL_MS) {
+    console.warn('⚠️ Backend rate limit:', {
+      grant_type: grantType,
+      retry_after: retryAfterSeconds,
+      window_start: new Date(tokenMetricsWindowStart).toISOString(),
+      window_ms: TOKEN_METRICS_WINDOW_MS,
+      backend_429: tokenMetrics.backend429,
+      backend_errors: tokenMetrics.backendErrors,
+    });
+    last429LogAt = now;
+  }
+};
+
+const CACHE_SWEEP_INTERVAL_MS = 10 * 60 * 1000;
+const sweepCaches = () => {
+  const now = Date.now();
+  for (const [key, value] of tokenCodeCache) {
+    if (value.expiresAt < now) tokenCodeCache.delete(key);
+  }
+  for (const [key, value] of refreshTokenCache) {
+    if (value.expiresAt < now || value.tokenExpiresAt < now) {
+      refreshTokenCache.delete(key);
+    }
+  }
+  for (const [key, value] of refreshTokenFailures) {
+    if (value.expiresAt < now) refreshTokenFailures.delete(key);
+  }
+  for (const [key, expiresAt] of knownRefreshTokens) {
+    if (expiresAt < now) knownRefreshTokens.delete(key);
+  }
+};
+
+setInterval(sweepCaches, CACHE_SWEEP_INTERVAL_MS).unref();
+
 // Middleware
 app.use(cors({
   origin: [
@@ -253,72 +432,204 @@ app.get('/oauth/callback', (req, res) => {
 app.post('/oauth/token', async (req, res) => {
   const { grant_type, code, refresh_token, redirect_uri, client_id, code_verifier } = req.body;
 
-  console.log('🔑 Token request:', { grant_type, code: code ? 'present' : 'missing' });
+  const refreshKnown = typeof refresh_token === 'string'
+    ? (isKnownRefreshToken(refresh_token) ? 'yes' : 'no')
+    : 'no';
+  rotateTokenMetricsIfNeeded('request');
+  recordTokenMetric('total');
+  if (grant_type === 'authorization_code') {
+    recordTokenMetric('authCode');
+  } else if (grant_type === 'refresh_token') {
+    recordTokenMetric('refresh');
+    recordTokenMetric(refreshKnown === 'yes' ? 'refreshKnown' : 'refreshUnknown');
+  }
+  console.log('🔑 Token request:', {
+    grant_type,
+    code: code ? 'present' : 'missing',
+    refresh_token: refresh_token ? 'present' : 'missing',
+    refresh_known: refreshKnown,
+  });
 
   try {
     if (grant_type === 'authorization_code') {
-      // Exchange code for token via backend OAuth endpoint
-      const response = await fetch(
-        'https://aidd-backend-prod-739193356129.us-central1.run.app/oauth/token',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            grant_type: 'authorization_code',
-            code,
-            client_id: 'aidd-mcp-client',  // Backend expects this specific client_id
-            redirect_uri: `${BASE_URL}/oauth/callback`,
-            code_verifier
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json() as any;
-        console.error('❌ Token exchange failed:', response.status, errorData);
-        // Pass through the backend's actual error
-        return res.status(400).json(errorData || { error: 'invalid_grant' });
+      if (!code || typeof code !== 'string') {
+        return res.status(400).json({ error: 'invalid_request', error_description: 'code is required' });
       }
 
-      const data = await response.json() as any;
-      console.log('✅ Token exchange successful');
+      const cached = getCachedTokenResponse(code);
+      if (cached) {
+        recordTokenMetric('authCodeCacheHit');
+        return res.json(cached);
+      }
 
-      res.json({
-        access_token: data.access_token,
-        refresh_token: data.refresh_token,
-        token_type: 'Bearer',
-        expires_in: 3600, // 1 hour (industry standard - refresh token handles session continuity)
-        scope: 'profile email tasks notes action_items',
-      });
+      let inFlight = tokenCodeInFlight.get(code);
+      if (!inFlight) {
+        inFlight = (async () => {
+          const response = await fetch(
+            'https://aidd-backend-prod-739193356129.us-central1.run.app/oauth/token',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                grant_type: 'authorization_code',
+                code,
+                client_id: 'aidd-mcp-client',  // Backend expects this specific client_id
+                redirect_uri: `${BASE_URL}/oauth/callback`,
+                code_verifier
+              }),
+            }
+          );
+
+          if (!response.ok) {
+            const errorData = await response.json() as any;
+            recordTokenMetric('backendErrors');
+            if (response.status === 429) {
+              recordBackend429('authorization_code', Number(errorData?.retryAfter));
+            }
+            const error = { status: response.status, data: errorData };
+            throw error;
+          }
+
+          const data = await response.json() as any;
+          const expiresIn = normalizeExpiresIn(data.expires_in);
+          const tokenResponse: TokenResponse = {
+            access_token: data.access_token,
+            refresh_token: data.refresh_token,
+            token_type: 'Bearer',
+            expires_in: expiresIn, // 1 hour (industry standard - refresh token handles session continuity)
+            scope: 'profile email tasks notes action_items',
+          };
+
+          const now = Date.now();
+          const tokenExpiresAt = now + expiresIn * 1000;
+          tokenCodeCache.set(code, { data: tokenResponse, expiresAt: now + TOKEN_CODE_CACHE_TTL_MS });
+
+          if (tokenResponse.refresh_token) {
+            const cacheExpiresAt = Math.min(now + REFRESH_TOKEN_CACHE_TTL_MS, tokenExpiresAt);
+            refreshTokenCache.set(tokenResponse.refresh_token, { data: tokenResponse, expiresAt: cacheExpiresAt, tokenExpiresAt });
+            refreshTokenFailures.delete(tokenResponse.refresh_token);
+            trackKnownRefreshToken(tokenResponse.refresh_token, cacheExpiresAt - now);
+          }
+          return tokenResponse;
+        })();
+        tokenCodeInFlight.set(code, inFlight);
+      } else {
+        recordTokenMetric('authCodeInFlightHit');
+      }
+
+      try {
+        const tokenResponse = await inFlight;
+        console.log('✅ Token exchange successful');
+        return res.json(tokenResponse);
+      } catch (error: any) {
+        const status = typeof error?.status === 'number' ? error.status : 500;
+        const errorData = error?.data;
+        if (status === 429 && errorData?.retryAfter) {
+          res.setHeader('Retry-After', String(errorData.retryAfter));
+        }
+        console.error('❌ Token exchange failed:', status, errorData || error);
+        return res.status(status).json(errorData || { error: 'invalid_grant' });
+      } finally {
+        tokenCodeInFlight.delete(code);
+      }
     } else if (grant_type === 'refresh_token') {
-      // Refresh token via backend OAuth endpoint
-      const response = await fetch(
-        'https://aidd-backend-prod-739193356129.us-central1.run.app/oauth/token',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            grant_type: 'refresh_token',
-            refresh_token,
-            client_id: 'aidd-mcp-client'  // Backend expects this specific client_id
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json() as any;
-        console.error('❌ Refresh token failed:', response.status, errorData);
-        // Pass through the backend's actual error
-        return res.status(400).json(errorData || { error: 'invalid_grant' });
+      if (!refresh_token || typeof refresh_token !== 'string') {
+        return res.status(400).json({ error: 'invalid_request', error_description: 'refresh_token is required' });
       }
 
-      const data = await response.json() as any;
-      res.json({
-        access_token: data.access_token,
-        refresh_token: data.refresh_token, // Include new refresh token if provided
-        token_type: 'Bearer',
-        expires_in: 3600, // 1 hour (industry standard)
-      });
+      const cachedResponse = getCachedRefreshResponse(refresh_token);
+      if (cachedResponse) {
+        recordTokenMetric('refreshCacheHit');
+        return res.json(cachedResponse);
+      }
+
+      const cachedFailure = getRefreshFailure(refresh_token);
+      if (cachedFailure) {
+        recordTokenMetric('refreshFailureCacheHit');
+        const errorPayload = cachedFailure.data || { error: 'invalid_grant' };
+        if (cachedFailure.status === 429 && errorPayload?.retryAfter) {
+          res.setHeader('Retry-After', String(errorPayload.retryAfter));
+        }
+        return res.status(cachedFailure.status).json(errorPayload);
+      }
+
+      let inFlight = refreshTokenInFlight.get(refresh_token);
+      if (!inFlight) {
+        inFlight = (async () => {
+          const response = await fetch(
+            'https://aidd-backend-prod-739193356129.us-central1.run.app/oauth/token',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                grant_type: 'refresh_token',
+                refresh_token,
+                client_id: 'aidd-mcp-client'  // Backend expects this specific client_id
+              }),
+            }
+          );
+
+          if (!response.ok) {
+            const errorData = await response.json() as any;
+            recordTokenMetric('backendErrors');
+            if (response.status === 429) {
+              recordBackend429('refresh_token', Number(errorData?.retryAfter));
+            }
+            const error = { status: response.status, data: errorData };
+            throw error;
+          }
+
+          const data = await response.json() as any;
+          const expiresIn = normalizeExpiresIn(data.expires_in);
+          const tokenResponse: TokenResponse = {
+            access_token: data.access_token,
+            refresh_token: data.refresh_token ?? refresh_token,
+            token_type: 'Bearer',
+            expires_in: expiresIn, // 1 hour (industry standard)
+          };
+
+          const now = Date.now();
+          const tokenExpiresAt = now + expiresIn * 1000;
+          const cacheExpiresAt = Math.min(now + REFRESH_TOKEN_CACHE_TTL_MS, tokenExpiresAt);
+          refreshTokenCache.set(refresh_token, { data: tokenResponse, expiresAt: cacheExpiresAt, tokenExpiresAt });
+          refreshTokenFailures.delete(refresh_token);
+          trackKnownRefreshToken(refresh_token, cacheExpiresAt - now);
+
+          if (tokenResponse.refresh_token && tokenResponse.refresh_token !== refresh_token) {
+            refreshTokenCache.set(tokenResponse.refresh_token, { data: tokenResponse, expiresAt: cacheExpiresAt, tokenExpiresAt });
+            refreshTokenFailures.delete(tokenResponse.refresh_token);
+            trackKnownRefreshToken(tokenResponse.refresh_token, cacheExpiresAt - now);
+          }
+
+          return tokenResponse;
+        })();
+        refreshTokenInFlight.set(refresh_token, inFlight);
+      } else {
+        recordTokenMetric('refreshInFlightHit');
+      }
+
+      try {
+        const tokenResponse = await inFlight;
+        return res.json(tokenResponse);
+      } catch (error: any) {
+        const status = typeof error?.status === 'number' ? error.status : 500;
+        const errorData = error?.data;
+        const errorPayload = errorData || { error: 'invalid_grant' };
+        const retryAfterSeconds = Number(errorPayload?.retryAfter);
+        if (status === 429 && Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+          res.setHeader('Retry-After', String(retryAfterSeconds));
+        }
+        console.error('❌ Refresh token failed:', status, errorPayload);
+        if (status === 429 || status === 400 || status === 401 || status === 403) {
+          const failureTtlMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+            ? retryAfterSeconds * 1000
+            : REFRESH_TOKEN_FAILURE_TTL_MS;
+          refreshTokenFailures.set(refresh_token, { status, data: errorPayload, expiresAt: Date.now() + failureTtlMs });
+        }
+        return res.status(status).json(errorPayload);
+      } finally {
+        refreshTokenInFlight.delete(refresh_token);
+      }
     } else {
       res.status(400).json({ error: 'unsupported_grant_type' });
     }
@@ -339,7 +650,7 @@ app.get('/health', (req, res) => {
     service: 'AiDD MCP Web Connector',
     version: '4.4.0',
     buildTimestamp: process.env.BUILD_TIMESTAMP || 'unknown',
-    toolCount: 21,
+    toolCount: 28,
     timestamp: new Date().toISOString(),
   });
 });
@@ -577,6 +888,10 @@ app.post('/mcp', async (req, res) => {
   console.log('📋 Request method:', req.body?.method);
   console.log('📋 Request ID:', req.body?.id);
 
+  const requestMethod = typeof req.body?.method === 'string' ? req.body.method : undefined;
+  const allowUnauthenticatedMethods = new Set(['initialize', 'tools/list', 'resources/list']);
+  const isDiscoveryRequest = requestMethod ? allowUnauthenticatedMethods.has(requestMethod) : false;
+
   // Extract OAuth token from Authorization header
   const authHeader = req.headers.authorization;
   let accessToken: string | undefined;
@@ -584,7 +899,7 @@ app.post('/mcp', async (req, res) => {
   if (authHeader && authHeader.startsWith('Bearer ')) {
     accessToken = authHeader.substring(7);
     console.log('🔑 OAuth token detected in request');
-  } else {
+  } else if (!isDiscoveryRequest) {
     console.log('❌ No OAuth token in request - OAuth is required for web connector');
 
     // Return 401 to force OAuth authentication
@@ -596,6 +911,8 @@ app.post('/mcp', async (req, res) => {
       token_endpoint: `${BASE_URL}/oauth/token`,
     });
     return;
+  } else {
+    console.log('ℹ️  Allowing unauthenticated discovery request:', requestMethod);
   }
 
   try {

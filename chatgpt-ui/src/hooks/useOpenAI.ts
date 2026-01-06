@@ -145,7 +145,7 @@ export function useTasks() {
     setLoading(true);
     setError(null);
     try {
-      const params: Record<string, any> = { sortBy, limit };
+      const params: Record<string, any> = { sortBy, limit, includeWidget: true };
       // Add filter parameters if provided
       if (filters) {
         if (filters.category) params.category = filters.category;
@@ -275,7 +275,7 @@ export function useActionItems() {
     setLoading(true);
     setError(null);
     try {
-      const rawResult = await callTool('list_action_items', { limit });
+      const rawResult = await callTool('list_action_items', { limit, includeWidget: true });
       const resultItems = getActionItemsFromToolOutput(rawResult) || [];
       const fallbackItems = resultItems.length === 0 ? getActionItemsFromToolOutput(window.openai?.toolOutput) : null;
       setActionItems(resultItems.length > 0 ? resultItems : fallbackItems || []);

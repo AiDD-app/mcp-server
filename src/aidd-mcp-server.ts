@@ -572,6 +572,9 @@ export class AiDDMCPServer {
           case 'delete_tasks':
             result = await this.handleDeleteTasks(args);
             break;
+          case 'delete_all_tasks':
+            result = await this.handleDeleteAllTasks(args);
+            break;
           case 'session_status':
             result = await this.handleSessionStatus();
             break;
@@ -603,7 +606,7 @@ export class AiDDMCPServer {
     return [
       {
         name: 'list_notes',
-        description: 'List notes from your AiDD account with optional sorting and pagination',
+        description: 'List notes from your AiDD account with optional sorting and pagination. Set includeWidget=true only when the user explicitly wants a visual list; omit it when you just need IDs for follow-up actions.',
         annotations: { readOnlyHint: true, openWorldHint: false },
         inputSchema: {
           type: 'object',
@@ -612,6 +615,7 @@ export class AiDDMCPServer {
             order: { type: 'string', enum: ['asc', 'desc'], description: 'Sort order (default: desc)' },
             limit: { type: 'number', description: 'Maximum number of notes to return (default: 100)' },
             offset: { type: 'number', description: 'Number of notes to skip for pagination (default: 0)' },
+            includeWidget: { type: 'boolean', description: 'Include widget-structured output. Use true only when the user asked to view a visual list; otherwise leave false.' },
           },
         },
         _meta: {
@@ -673,7 +677,7 @@ export class AiDDMCPServer {
       },
       {
         name: 'list_action_items',
-        description: 'List action items from your AiDD account with optional sorting and pagination',
+        description: 'List action items from your AiDD account with optional sorting and pagination. Set includeWidget=true only when the user explicitly wants a visual list; omit it when you just need IDs for follow-up actions.',
         annotations: { readOnlyHint: true, openWorldHint: false },
         inputSchema: {
           type: 'object',
@@ -682,6 +686,7 @@ export class AiDDMCPServer {
             order: { type: 'string', enum: ['asc', 'desc'], description: 'Sort order (default: desc)' },
             limit: { type: 'number', description: 'Maximum number of action items to return (default: 100)' },
             offset: { type: 'number', description: 'Number of action items to skip for pagination (default: 0)' },
+            includeWidget: { type: 'boolean', description: 'Include widget-structured output. Use true only when the user asked to view a visual list; otherwise leave false.' },
           },
         },
         _meta: {
@@ -761,7 +766,7 @@ export class AiDDMCPServer {
       },
       {
         name: 'list_tasks',
-        description: 'List tasks from your AiDD account with optional sorting and pagination. IMPORTANT: By default, tasks are sorted by AI score while respecting dependencies - you do NOT need to set sortBy or ignoreDependencies for normal "what should I work on" queries. Only use ignoreDependencies:true when the user explicitly asks to ignore/disregard dependencies.',
+        description: 'List tasks from your AiDD account with optional sorting and pagination. IMPORTANT: By default, tasks are sorted by AI score while respecting dependencies - you do NOT need to set sortBy or ignoreDependencies for normal "what should I work on" queries. Only use ignoreDependencies:true when the user explicitly asks to ignore/disregard dependencies. Set includeWidget=true only when the user explicitly wants a visual dashboard; omit it when you just need IDs for follow-up actions.',
         annotations: { readOnlyHint: true, openWorldHint: false },
         inputSchema: {
           type: 'object',
@@ -780,6 +785,7 @@ export class AiDDMCPServer {
             dueWithinDays: { type: 'number', description: 'Filter to tasks due within this many days' },
             includeCompleted: { type: 'boolean', description: 'Include completed tasks (default: false)' },
             timeBudgetMinutes: { type: 'number', description: 'Time budget optimization: fill this many minutes with highest-value task chains. Tasks from highest-scored chains are added first (respecting dependencies), then next highest chain, until time budget is filled.' },
+            includeWidget: { type: 'boolean', description: 'Include widget-structured output. Use true only when the user asked to view the task dashboard; otherwise leave false.' },
           },
         },
         _meta: {
@@ -1062,12 +1068,32 @@ export class AiDDMCPServer {
       },
       {
         name: 'delete_tasks',
-        description: 'Delete one or more tasks from your AiDD account',
+        description: 'Delete one or more tasks from your AiDD account. For "delete all tasks", use delete_all_tasks.',
         annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
         inputSchema: {
           type: 'object',
           properties: { taskIds: { type: 'array', items: { type: 'string' }, description: 'IDs of the tasks to delete' } },
           required: ['taskIds'],
+        },
+      },
+      {
+        name: 'delete_all_tasks',
+        description: 'Delete all tasks in your AiDD account. Use only when the user explicitly requests deleting all tasks. Default includes completed tasks.',
+        annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+        inputSchema: {
+          type: 'object',
+          properties: {
+            confirm: { type: 'boolean', description: 'Must be true to proceed. Set only when the user explicitly requests deleting all tasks.' },
+            includeCompleted: { type: 'boolean', description: 'Include completed tasks. Default true.' },
+            // Filters
+            category: { type: 'string', description: 'Filter by category (work/personal)' },
+            tags: { type: 'string', description: 'Filter by tags (comma-separated list)' },
+            maxTimeMinutes: { type: 'number', description: 'Filter to tasks with estimated time <= this value (in minutes)' },
+            maxEnergy: { type: 'string', enum: ['low', 'medium', 'high'], description: 'Filter to tasks with energy level <= this value' },
+            onlyAIScored: { type: 'boolean', description: 'Only delete tasks that have been AI scored' },
+            dueWithinDays: { type: 'number', description: 'Only delete tasks due within this many days' },
+          },
+          required: ['confirm'],
         },
       },
       {
@@ -1142,8 +1168,11 @@ export class AiDDMCPServer {
       // Ensure E2E is initialized before fetching data
       await this.ensureE2EInitialized();
 
+      const includeWidget = args?.includeWidget === true;
+      const { includeWidget: _includeWidget, ...listArgs } = args ?? {};
+
       // Use pagination-aware method to get total count
-      const paginatedResult = await this.backendClient.listNotesWithPagination(args);
+      const paginatedResult = await this.backendClient.listNotesWithPagination(listArgs);
       let notes = paginatedResult.items;
       const { total, limit, offset, hasMore } = paginatedResult;
 
@@ -1185,8 +1214,12 @@ export class AiDDMCPServer {
         ? `\n\n📄 **Showing ${offset + 1}-${offset + notes.length} of ${total} notes.** To see more, call \`list_notes\` with \`offset: ${offset + limit}\`.`
         : '';
 
-      return {
-        structuredContent: {
+      const result: any = {
+        content: [{ type: 'text', text: `📝 **Notes** (showing ${notes.length} of ${total} total)\n\n${notesList}${paginationInfo}\n\n*Use the IDs above with \`delete_notes\` to remove notes.*` } as TextContent],
+      };
+
+      if (includeWidget) {
+        result.structuredContent = {
           success: true,
           // Pagination metadata
           pagination: {
@@ -1199,9 +1232,10 @@ export class AiDDMCPServer {
           },
           totalNotes: total, // Keep for backwards compatibility
           notes: structuredNotes,
-        },
-        content: [{ type: 'text', text: `📝 **Notes** (showing ${notes.length} of ${total} total)\n\n${notesList}${paginationInfo}\n\n*Use the IDs above with \`delete_notes\` to remove notes.*` } as TextContent],
-      };
+        };
+      }
+
+      return result;
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error listing notes: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
     }
@@ -1360,8 +1394,11 @@ export class AiDDMCPServer {
     try {
       await this.ensureE2EInitialized();
 
+      const includeWidget = args?.includeWidget === true;
+      const { includeWidget: _includeWidget, ...listArgs } = args ?? {};
+
       // Use pagination-aware method to get total count
-      const paginatedResult = await this.backendClient.listActionItemsWithPagination(args);
+      const paginatedResult = await this.backendClient.listActionItemsWithPagination(listArgs);
       let actionItems = paginatedResult.items;
       const { total, limit, offset, hasMore } = paginatedResult;
 
@@ -1418,8 +1455,12 @@ export class AiDDMCPServer {
         ? `\n\n🔐 **Note:** ${encryptedItemCount} action item(s) are encrypted and couldn't be decrypted. Please open the AiDD iOS app to sync your encryption key.`
         : '';
 
-      return {
-        structuredContent: {
+      const result: any = {
+        content: [{ type: 'text', text: `✅ **Action Items** (showing ${actionItems.length} of ${total} total)\n\n${itemsList}${paginationInfo}${encryptionWarning}\n\n*Use the IDs above with \`delete_action_items\` to remove items.*` } as TextContent],
+      };
+
+      if (includeWidget) {
+        result.structuredContent = {
           success: true,
           // Pagination metadata
           pagination: {
@@ -1435,9 +1476,10 @@ export class AiDDMCPServer {
           // Encryption status for widget display
           hasEncryptedItems,
           encryptedItemCount,
-        },
-        content: [{ type: 'text', text: `✅ **Action Items** (showing ${actionItems.length} of ${total} total)\n\n${itemsList}${paginationInfo}${encryptionWarning}\n\n*Use the IDs above with \`delete_action_items\` to remove items.*` } as TextContent],
-      };
+        };
+      }
+
+      return result;
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error listing action items: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
     }
@@ -2253,10 +2295,13 @@ export class AiDDMCPServer {
         'maxTimeMinutes:', args.maxTimeMinutes, 'onlyAIScored:', args.onlyAIScored);
       await this.ensureE2EInitialized();
 
+      const includeWidget = args?.includeWidget === true;
+
       // For scoreWithDependencies (default) or score sorting, we need the backend to return
       // tasks sorted by score first, then we apply dependency-aware ordering client-side.
       // This ensures we get the highest-scored tasks in the paginated result.
       const backendArgs = { ...args };
+      delete backendArgs.includeWidget;
       if (!backendArgs.sortBy || backendArgs.sortBy === 'score' || backendArgs.sortBy === 'scoreWithDependencies') {
         backendArgs.sortBy = 'score';
         backendArgs.order = backendArgs.order || 'desc'; // Highest scores first
@@ -2478,8 +2523,12 @@ export class AiDDMCPServer {
         ? `\n\n🔐 **Note:** ${encryptedTaskCount} task(s) are encrypted and couldn't be decrypted. Please open the AiDD iOS app to sync your encryption key.`
         : '';
 
-      return {
-        structuredContent: {
+      const result: any = {
+        content: [{ type: 'text', text: `📋 **Pending Tasks** (${pendingTasks.length} of ${total} total)\n\n${tasksList}${paginationInfo}${encryptionWarning}\n\n*Use the IDs above with \`delete_tasks\` to remove tasks.*` } as TextContent],
+      };
+
+      if (includeWidget) {
+        result.structuredContent = {
           success: true,
           // Pagination metadata
           pagination: {
@@ -2495,9 +2544,10 @@ export class AiDDMCPServer {
           // Let the widget know about encryption issues
           hasEncryptedItems: hasEncryptedTasks,
           encryptedItemCount: encryptedTaskCount,
-        },
-        content: [{ type: 'text', text: `📋 **Pending Tasks** (${pendingTasks.length} of ${total} total)\n\n${tasksList}${paginationInfo}${encryptionWarning}\n\n*Use the IDs above with \`delete_tasks\` to remove tasks.*` } as TextContent],
-      };
+        };
+      }
+
+      return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       console.error('[MCP] handleListTasks error:', errorMessage, error);
@@ -3401,6 +3451,142 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
     }
   }
 
+  private async handleDeleteAllTasks(args: any) {
+    try {
+      if (args?.confirm !== true) {
+        return {
+          content: [{ type: 'text', text: '❌ **Confirmation required:** set `confirm: true` to delete all tasks.' } as TextContent],
+          isError: true,
+        };
+      }
+
+      const includeCompleted = args?.includeCompleted !== false;
+      const pageSize = 100;
+      const listArgs: any = {
+        sortBy: 'createdAt',
+        order: 'asc',
+        limit: pageSize,
+        offset: 0,
+        includeCompleted,
+      };
+
+      if (typeof args?.category === 'string' && args.category.length > 0) listArgs.category = args.category;
+      if (typeof args?.tags === 'string' && args.tags.length > 0) listArgs.tags = args.tags;
+      if (args?.maxTimeMinutes !== undefined) listArgs.maxTimeMinutes = args.maxTimeMinutes;
+      if (typeof args?.maxEnergy === 'string' && args.maxEnergy.length > 0) listArgs.maxEnergy = args.maxEnergy;
+      if (args?.onlyAIScored === true) listArgs.onlyAIScored = true;
+      if (args?.dueWithinDays !== undefined) listArgs.dueWithinDays = args.dueWithinDays;
+
+      const taskIds = new Set<string>();
+      let offset = 0;
+      let total = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        const paginatedResult = await this.backendClient.listTasksWithPagination({ ...listArgs, offset });
+        const tasks = paginatedResult.items || [];
+        for (const task of tasks) {
+          if (task?.id) taskIds.add(task.id);
+        }
+        total = paginatedResult.total ?? total;
+        if (!paginatedResult.hasMore || tasks.length === 0) {
+          hasMore = false;
+        } else {
+          offset += paginatedResult.limit || pageSize;
+        }
+      }
+
+      const idsArray = Array.from(taskIds);
+      if (idsArray.length === 0) {
+        return {
+          content: [{ type: 'text', text: '🧹 **No Tasks Found**\n\nThere are no tasks matching the requested filters.' } as TextContent],
+        };
+      }
+
+      const deleteBatchSize = 100;
+      let deletedCount = 0;
+      let failedCount = 0;
+      let partialFailures = 0;
+      const failures: Array<{ id: string; error: string }> = [];
+
+      const recordFailure = (id: string, error: unknown) => {
+        failedCount += 1;
+        if (failures.length < 20) {
+          const message = error instanceof Error ? error.message : String(error);
+          failures.push({ id, error: message });
+        }
+      };
+
+      for (let i = 0; i < idsArray.length; i += deleteBatchSize) {
+        const batch = idsArray.slice(i, i + deleteBatchSize);
+        if (batch.length === 1) {
+          try {
+            await this.backendClient.deleteTask(batch[0]);
+            deletedCount += 1;
+          } catch (error) {
+            recordFailure(batch[0], error);
+          }
+          continue;
+        }
+
+        try {
+          const result = await this.backendClient.deleteTasks(batch);
+          const batchDeleted = (result as any)?.deletedCount;
+          if (typeof batchDeleted === 'number') {
+            deletedCount += batchDeleted;
+            if (batchDeleted < batch.length) {
+              partialFailures += batch.length - batchDeleted;
+            }
+          } else {
+            deletedCount += batch.length;
+          }
+        } catch (error) {
+          for (const id of batch) {
+            try {
+              await this.backendClient.deleteTask(id);
+              deletedCount += 1;
+            } catch (taskError) {
+              recordFailure(id, taskError);
+            }
+          }
+        }
+      }
+
+      let response = `🗑️ **Tasks Deleted**\n\nDeleted ${deletedCount} of ${idsArray.length} task${idsArray.length !== 1 ? 's' : ''}.`;
+      const totalFailures = failedCount + partialFailures;
+      if (totalFailures > 0) {
+        response += `\n\n⚠️ ${totalFailures} task${totalFailures !== 1 ? 's' : ''} may not have been deleted. You can retry if needed.`;
+      }
+
+      return {
+        structuredContent: {
+          success: totalFailures === 0,
+          requestedCount: idsArray.length,
+          deletedCount,
+          failedCount,
+          partialFailures,
+          total,
+          includeCompleted,
+          filters: {
+            category: listArgs.category ?? null,
+            tags: listArgs.tags ?? null,
+            maxTimeMinutes: listArgs.maxTimeMinutes ?? null,
+            maxEnergy: listArgs.maxEnergy ?? null,
+            onlyAIScored: listArgs.onlyAIScored ?? false,
+            dueWithinDays: listArgs.dueWithinDays ?? null,
+          },
+          failures,
+        },
+        content: [{ type: 'text', text: response } as TextContent],
+      };
+    } catch (error) {
+      return {
+        content: [{ type: 'text', text: `❌ **Error deleting all tasks:** ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent],
+        isError: true,
+      };
+    }
+  }
+
   private async handleSessionStatus() {
     try {
       // Get user info from backend
@@ -3553,7 +3739,7 @@ Action items can be created directly or extracted from notes.
 
 ---
 
-## ✅ TASKS TOOLS (9 tools)
+## ✅ TASKS TOOLS (10 tools)
 
 Tasks are ADHD-optimized, bite-sized work items broken down from action items.
 
@@ -3566,6 +3752,7 @@ Tasks are ADHD-optimized, bite-sized work items broken down from action items.
 | \`update_task\` | Update a task | taskId (required), title, isCompleted, etc. |
 | \`update_tasks\` | Update multiple tasks | updates[] (required), taskId, title, isCompleted |
 | \`delete_tasks\` | Delete tasks | taskIds[] (required) |
+| \`delete_all_tasks\` | Delete ALL tasks | confirm (required), includeCompleted, filters |
 | \`convert_to_tasks\` 🤖 | **AI-powered** conversion from action items | actionItemIds[], breakdownMode, waitForCompletion |
 | \`score_tasks\` 🤖 | **AI-powered** prioritization | considerCurrentEnergy, timeOfDay, waitForCompletion |
 
