@@ -37,6 +37,9 @@ interface DeviceInfo {
   architecture: string;
 }
 
+// MCP source type - which AI platform is using the MCP server
+export type McpSource = 'claude' | 'chatgpt' | 'other' | 'unknown';
+
 export class GA4Analytics {
   private measurementId: string;
   private apiSecret: string;
@@ -50,6 +53,8 @@ export class GA4Analytics {
   // Device/locale info for user properties
   private deviceInfo: DeviceInfo;
   private userPropertiesSent: boolean = false;
+  // MCP source - which AI platform is using this server
+  private mcpSource: McpSource = 'unknown';
 
   constructor(config?: GA4Config) {
     this.measurementId = config?.measurementId || process.env.GA_MEASUREMENT_ID || 'G-XXXXXXXXXX';
@@ -65,6 +70,8 @@ export class GA4Analytics {
     this.sessionId = Date.now().toString();
     // Gather device/locale information
     this.deviceInfo = this.gatherDeviceInfo();
+    // Detect MCP source from environment
+    this.mcpSource = this.detectMcpSource();
 
     // Log initialization state (helpful for debugging env var issues)
     console.log('[GA4-MCP] Initialized:', {
@@ -75,11 +82,64 @@ export class GA4Analytics {
       nodeEnv: process.env.NODE_ENV,
       clientId: this.persistentClientId.substring(0, 15) + '...',
       sessionId: this.sessionId,
+      mcpSource: this.mcpSource,
       deviceInfo: this.deviceInfo
     });
 
     // Send user properties on first initialization
     this.sendUserPropertiesOnce();
+  }
+
+  /**
+   * Detect which AI platform (Claude, ChatGPT, etc.) is using this MCP server
+   * Detection is based on environment variables and process characteristics
+   */
+  private detectMcpSource(): McpSource {
+    // Check environment variables that might indicate the source
+    const mcpSourceEnv = process.env.MCP_SOURCE?.toLowerCase();
+    if (mcpSourceEnv) {
+      if (mcpSourceEnv.includes('claude')) return 'claude';
+      if (mcpSourceEnv.includes('chatgpt') || mcpSourceEnv.includes('openai')) return 'chatgpt';
+      return 'other';
+    }
+
+    // Check parent process or command line for hints
+    const parentPid = process.ppid;
+    const argv = process.argv.join(' ').toLowerCase();
+
+    // Claude Desktop typically runs MCP servers with specific patterns
+    if (argv.includes('claude') || process.env.CLAUDE_MCP) {
+      return 'claude';
+    }
+
+    // ChatGPT/OpenAI patterns
+    if (argv.includes('chatgpt') || argv.includes('openai') || process.env.OPENAI_API_KEY) {
+      return 'chatgpt';
+    }
+
+    // Check if running in a known MCP host environment
+    const mcpHost = process.env.MCP_HOST?.toLowerCase();
+    if (mcpHost) {
+      if (mcpHost.includes('claude')) return 'claude';
+      if (mcpHost.includes('chatgpt') || mcpHost.includes('openai')) return 'chatgpt';
+    }
+
+    return 'unknown';
+  }
+
+  /**
+   * Set the MCP source manually (useful when detected via OAuth or other means)
+   */
+  setMcpSource(source: McpSource): void {
+    this.mcpSource = source;
+    console.log('[GA4-MCP] MCP source set to:', source);
+  }
+
+  /**
+   * Get the current MCP source
+   */
+  getMcpSource(): McpSource {
+    return this.mcpSource;
   }
 
   /**
@@ -272,6 +332,8 @@ export class GA4Analytics {
           platform: 'mcp_server',
           app_name: 'aidd_mcp',
           app_version: '1.0.0',
+          // MCP source - which AI platform is using this server (claude/chatgpt/other/unknown)
+          mcp_source: this.mcpSource,
           // Include device/locale info for better GA4 reporting
           // (Measurement Protocol doesn't auto-detect these like gtag.js does)
           device_platform: this.deviceInfo.platform,
