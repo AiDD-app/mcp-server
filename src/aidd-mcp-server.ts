@@ -2586,8 +2586,21 @@ export class AiDDMCPServer {
       await this.ensureE2EInitialized();
 
       const { title, description, estimatedTime = 15, energyRequired = 'medium', taskType, dueDate, tags = [] } = args;
+
+      // FIX v3.2.18: Generate sourceId for deduplication
+      // This prevents duplicate tasks when the same task is created multiple times via MCP
+      const importKey = this.buildTaskImportKey({
+        title,
+        description,
+        estimatedTime,
+        energyRequired,
+        taskType,
+        dueDate,
+      });
+      const sourceId = this.buildTaskSourceId(importKey);
+
       // Only include taskType in taskData if explicitly provided - don't default to 'administrative'
-      const taskData: Record<string, any> = { actionItemId: '', taskOrder: 1, title, description: description || '', estimatedTime, energyRequired, tags, dependsOnTaskOrders: [], dueDate };
+      const taskData: Record<string, any> = { actionItemId: '', taskOrder: 1, title, description: description || '', estimatedTime, energyRequired, tags, dependsOnTaskOrders: [], dueDate, sourceId };
       if (taskType) {
         taskData.taskType = taskType;
       }
