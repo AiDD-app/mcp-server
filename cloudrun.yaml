@@ -1,0 +1,71 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: aidd-mcp
+  annotations:
+    run.googleapis.com/launch-stage: GA
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "1"
+        autoscaling.knative.dev/maxScale: "10"
+        run.googleapis.com/cpu-throttling: "true"
+        run.googleapis.com/execution-environment: "gen2"
+        run.googleapis.com/startup-cpu-boost: "true"
+        
+    spec:
+      timeoutSeconds: 300
+      containerConcurrency: 80
+      
+      containers:
+      - image: gcr.io/dev-trees-464016-k5/aidd-mcp:latest
+        name: aidd-mcp-connector
+        
+        resources:
+          limits:
+            cpu: "2"
+            memory: "1Gi"
+        
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: MCP_SERVER_PORT
+          value: "8080"
+        - name: ENABLE_ANALYTICS
+          value: "true"
+          
+        # Analytics
+        - name: GA_MEASUREMENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: ga-measurement-id
+              key: latest
+        - name: GA_API_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: ga-api-secret
+              key: latest
+        
+        # Backend Integration
+        - name: AIDD_BACKEND_URL
+          value: "https://aidd-backend-prod-739193356129.us-central1.run.app"
+        # Since no aidd-api-key secret exists, assuming it might be optional or managed differently.
+        # Leaving placeholder if user needs to create it, or removing if not strictly required by live service.
+        # Looking at live service, it didn't have it.
+          
+        # OAuth - Using Secrets found in project
+        - name: MICROSOFT_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: microsoft-oauth-client-id
+              key: latest
+        - name: GOOGLE_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: google-oauth-client-id
+              key: latest
+        
+        ports:
+        - containerPort: 8080
+          name: http1
