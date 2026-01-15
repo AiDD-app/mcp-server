@@ -1,0 +1,51 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: aidd-mcp
+  labels:
+    cloud.googleapis.com/location: us-central1
+spec:
+  template:
+    metadata:
+      annotations:
+        # Autoscaling: Low-traffic baseline - MCP is used intermittently
+        # minScale=0: Scale to zero when not in use (saves cost during idle)
+        autoscaling.knative.dev/minScale: '0'
+        autoscaling.knative.dev/maxScale: '10'
+        # Target 40 concurrent (MCP sessions are longer-lived)
+        autoscaling.knative.dev/target: '40'
+
+        # CPU throttling = pay only when processing requests
+        run.googleapis.com/cpu-throttling: 'true'
+        run.googleapis.com/execution-environment: 'gen2'
+        run.googleapis.com/startup-cpu-boost: 'true'
+
+        # VPC access for Redis (if needed in future)
+        # run.googleapis.com/network-interfaces: '[{"network":"aidd-prod-vpc","subnetwork":"aidd-prod-subnet"}]'
+        # run.googleapis.com/vpc-access-egress: "private-ranges-only"
+    spec:
+      containerConcurrency: 80
+      timeoutSeconds: 300
+      containers:
+        - image: gcr.io/dev-trees-464016-k5/aidd-mcp:latest
+          ports:
+            - name: http1
+              containerPort: 8080
+          env:
+            - name: NODE_ENV
+              value: 'production'
+            - name: BACKEND_URL
+              value: 'https://aidd-backend-prod-739193356129.us-central1.run.app'
+          resources:
+            limits:
+              cpu: '1'
+              memory: 512Mi
+          # Startup probe for cold starts
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 3
+            timeoutSeconds: 3
+            failureThreshold: 10
