@@ -1,58 +1,60 @@
 /**
  * Quick Capture Form Component
  *
- * Fast task/note capture with minimal friction.
+ * Fast action item capture with minimal friction.
  * ADHD-optimized: single field entry with smart defaults.
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { useTasks, useOpenAI } from '../hooks/useOpenAI';
-import type { Task } from '../types/openai';
+import { useActionItems, useOpenAI } from '../hooks/useOpenAI';
+import type { ActionItem } from '../types/openai';
 import { cn } from '../utils/cn';
 import {
   Plus,
-  Zap,
-  Clock,
-  Battery,
-  BatteryLow,
-  BatteryMedium,
+  Flag,
   Tag,
   Calendar,
   Send,
   Sparkles,
   ChevronDown,
-  ChevronUp,
   X,
+  AlertTriangle,
+  AlertCircle,
 } from 'lucide-react';
 import * as Select from '@radix-ui/react-select';
-import * as Dialog from '@radix-ui/react-dialog';
 
 interface QuickCaptureFormProps {
-  onTaskCreated?: (task: Task) => void;
+  onActionItemCreated?: (actionItem: ActionItem) => void;
   defaultExpanded?: boolean;
 }
 
-type EnergyLevel = 'low' | 'medium' | 'high';
+type PriorityLevel = 'low' | 'medium' | 'high' | 'urgent';
 
-const ENERGY_LEVELS: { value: EnergyLevel; label: string; icon: typeof Battery }[] = [
-  { value: 'low', label: 'Low', icon: BatteryLow },
-  { value: 'medium', label: 'Medium', icon: BatteryMedium },
-  { value: 'high', label: 'High', icon: Battery },
+const PRIORITY_LEVELS: { value: PriorityLevel; label: string; icon: typeof Flag; color: string }[] = [
+  { value: 'low', label: 'Low', icon: Flag, color: 'text-green-500' },
+  { value: 'medium', label: 'Medium', icon: Flag, color: 'text-yellow-500' },
+  { value: 'high', label: 'High', icon: AlertCircle, color: 'text-orange-500' },
+  { value: 'urgent', label: 'Urgent', icon: AlertTriangle, color: 'text-red-500' },
 ];
 
-const TIME_ESTIMATES = [5, 10, 15, 30, 45, 60, 90, 120];
+const CATEGORIES = [
+  { value: 'work', label: 'Work' },
+  { value: 'personal', label: 'Personal' },
+];
 
 export function QuickCaptureForm({
-  onTaskCreated,
+  onActionItemCreated,
   defaultExpanded = false,
 }: QuickCaptureFormProps) {
   const { theme, sendMessage } = useOpenAI();
-  const { createTask, loading } = useTasks();
+  const { createActionItem, loading, fetchActionItems } = useActionItems();
 
   const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
   const [expanded, setExpanded] = useState(defaultExpanded);
-  const [energyRequired, setEnergyRequired] = useState<EnergyLevel>('medium');
-  const [estimatedTime, setEstimatedTime] = useState(15);
+  const [priority, setPriority] = useState<PriorityLevel>('medium');
+  const [category, setCategory] = useState<'work' | 'personal'>('work');
+  const [dueDate, setDueDate] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
 
@@ -70,27 +72,34 @@ export function QuickCaptureForm({
     if (!title.trim() || loading) return;
 
     try {
-      const task = await createTask({
+      const actionItem = await createActionItem({
         title: title.trim(),
-        energyRequired,
-        estimatedTime,
+        description: description.trim() || undefined,
+        priority,
+        category,
+        dueDate: dueDate || undefined,
         tags: tags.length > 0 ? tags : undefined,
       });
 
-      onTaskCreated?.(task);
+      onActionItemCreated?.(actionItem);
+
+      // Refresh the action items list
+      await fetchActionItems();
 
       // Reset form
       setTitle('');
+      setDescription('');
       setTags([]);
       setTagInput('');
+      setDueDate('');
       if (!defaultExpanded) {
         setExpanded(false);
       }
 
       // Send follow-up message to ChatGPT
-      sendMessage(`Created task: "${task.title}"`);
+      sendMessage(`Created action item: "${actionItem.title}"`);
     } catch (error) {
-      console.error('Failed to create task:', error);
+      console.error('Failed to create action item:', error);
     }
   };
 
@@ -120,14 +129,12 @@ export function QuickCaptureForm({
   // Smart defaults based on title keywords
   useEffect(() => {
     const lower = title.toLowerCase();
-    if (lower.includes('quick') || lower.includes('fast') || lower.includes('simple')) {
-      setEnergyRequired('low');
-    } else if (lower.includes('focus') || lower.includes('deep') || lower.includes('complex')) {
-      setEnergyRequired('high');
-    } else if (lower.includes('meet') || lower.includes('call') || lower.includes('discuss')) {
-      setEnergyRequired('medium');
-    } else if (lower.includes('design') || lower.includes('create') || lower.includes('write')) {
-      setEnergyRequired('high');
+    if (lower.includes('urgent') || lower.includes('asap') || lower.includes('immediately')) {
+      setPriority('urgent');
+    } else if (lower.includes('important') || lower.includes('critical') || lower.includes('must')) {
+      setPriority('high');
+    } else if (lower.includes('when possible') || lower.includes('eventually') || lower.includes('sometime')) {
+      setPriority('low');
     }
   }, [title]);
 
@@ -150,13 +157,13 @@ export function QuickCaptureForm({
           <div
             className={cn(
               'w-10 h-10 rounded-full flex items-center justify-center',
-              'bg-purple-600 text-white'
+              'bg-blue-600 text-white'
             )}
           >
             <Plus className="w-5 h-5" />
           </div>
           <span className={cn('font-medium', isDark ? 'text-gray-300' : 'text-gray-600')}>
-            Quick capture a task...
+            Quick capture an action item...
           </span>
         </button>
       ) : (
@@ -169,7 +176,7 @@ export function QuickCaptureForm({
             )}
           >
             <div className="flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-purple-500" />
+              <Sparkles className="w-5 h-5 text-blue-500" />
               <h2 className={cn('font-semibold', isDark ? 'text-white' : 'text-gray-900')}>
                 Quick Capture
               </h2>
@@ -189,17 +196,30 @@ export function QuickCaptureForm({
           </div>
 
           {/* Main Input */}
-          <div className="p-4">
+          <div className="p-4 space-y-3">
             <input
               ref={inputRef}
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="What do you need to do?"
+              placeholder="What needs to be done?"
               className={cn(
                 'w-full px-4 py-3 rounded-lg border text-lg font-medium',
-                'focus:outline-none focus:ring-2 focus:ring-purple-500',
+                'focus:outline-none focus:ring-2 focus:ring-blue-500',
+                isDark
+                  ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500'
+                  : 'bg-white border-gray-200 text-gray-900 placeholder-gray-400'
+              )}
+            />
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Add details (optional)..."
+              rows={2}
+              className={cn(
+                'w-full px-4 py-2 rounded-lg border text-sm',
+                'focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none',
                 isDark
                   ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500'
                   : 'bg-white border-gray-200 text-gray-900 placeholder-gray-400'
@@ -210,14 +230,14 @@ export function QuickCaptureForm({
           {/* Options Grid */}
           <div
             className={cn(
-              'px-4 pb-4 grid grid-cols-2 gap-3',
+              'px-4 pb-4 grid grid-cols-3 gap-3',
               isDark ? 'text-gray-300' : 'text-gray-700'
             )}
           >
-            {/* Energy */}
+            {/* Priority */}
             <div>
-              <label className="block text-xs font-medium mb-1">Energy</label>
-              <Select.Root value={energyRequired} onValueChange={(v) => setEnergyRequired(v as EnergyLevel)}>
+              <label className="block text-xs font-medium mb-1">Priority</label>
+              <Select.Root value={priority} onValueChange={(v) => setPriority(v as PriorityLevel)}>
                 <Select.Trigger
                   className={cn(
                     'w-full px-3 py-2 rounded-lg border text-sm flex items-center justify-between',
@@ -225,7 +245,9 @@ export function QuickCaptureForm({
                   )}
                 >
                   <Select.Value>
-                    {ENERGY_LEVELS.find(e => e.value === energyRequired)?.label}
+                    <span className={cn(PRIORITY_LEVELS.find(p => p.value === priority)?.color)}>
+                      {PRIORITY_LEVELS.find(p => p.value === priority)?.label}
+                    </span>
                   </Select.Value>
                   <Select.Icon>
                     <ChevronDown className="w-4 h-4" />
@@ -239,7 +261,7 @@ export function QuickCaptureForm({
                     )}
                   >
                     <Select.Viewport>
-                      {ENERGY_LEVELS.map((level) => {
+                      {PRIORITY_LEVELS.map((level) => {
                         const Icon = level.icon;
                         return (
                           <Select.Item
@@ -250,7 +272,7 @@ export function QuickCaptureForm({
                               isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
                             )}
                           >
-                            <Icon className="w-4 h-4" />
+                            <Icon className={cn('w-4 h-4', level.color)} />
                             <Select.ItemText>{level.label}</Select.ItemText>
                           </Select.Item>
                         );
@@ -261,20 +283,17 @@ export function QuickCaptureForm({
               </Select.Root>
             </div>
 
-            {/* Time */}
+            {/* Category */}
             <div>
-              <label className="block text-xs font-medium mb-1">Time (min)</label>
-              <Select.Root value={String(estimatedTime)} onValueChange={(v) => setEstimatedTime(Number(v))}>
+              <label className="block text-xs font-medium mb-1">Category</label>
+              <Select.Root value={category} onValueChange={(v) => setCategory(v as 'work' | 'personal')}>
                 <Select.Trigger
                   className={cn(
                     'w-full px-3 py-2 rounded-lg border text-sm flex items-center justify-between',
                     isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
                   )}
                 >
-                  <Select.Value>
-                    <Clock className="w-3 h-3 inline mr-1" />
-                    {estimatedTime}m
-                  </Select.Value>
+                  <Select.Value>{CATEGORIES.find(c => c.value === category)?.label}</Select.Value>
                   <Select.Icon>
                     <ChevronDown className="w-4 h-4" />
                   </Select.Icon>
@@ -287,22 +306,40 @@ export function QuickCaptureForm({
                     )}
                   >
                     <Select.Viewport>
-                      {TIME_ESTIMATES.map((time) => (
+                      {CATEGORIES.map((cat) => (
                         <Select.Item
-                          key={time}
-                          value={String(time)}
+                          key={cat.value}
+                          value={cat.value}
                           className={cn(
                             'px-3 py-2 text-sm cursor-pointer outline-none',
                             isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
                           )}
                         >
-                          <Select.ItemText>{time} minutes</Select.ItemText>
+                          <Select.ItemText>{cat.label}</Select.ItemText>
                         </Select.Item>
                       ))}
                     </Select.Viewport>
                   </Select.Content>
                 </Select.Portal>
               </Select.Root>
+            </div>
+
+            {/* Due Date */}
+            <div>
+              <label className="block text-xs font-medium mb-1">Due Date</label>
+              <div className="relative">
+                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="date"
+                  value={dueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
+                  className={cn(
+                    'w-full pl-9 pr-3 py-2 rounded-lg border text-sm',
+                    'focus:outline-none focus:ring-2 focus:ring-blue-500',
+                    isDark ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-900'
+                  )}
+                />
+              </div>
             </div>
           </div>
 
@@ -360,7 +397,7 @@ export function QuickCaptureForm({
               disabled={!title.trim() || loading}
               className={cn(
                 'w-full py-2.5 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors',
-                'bg-purple-600 text-white hover:bg-purple-700',
+                'bg-blue-600 text-white hover:bg-blue-700',
                 (!title.trim() || loading) && 'opacity-50 cursor-not-allowed'
               )}
             >
@@ -372,7 +409,7 @@ export function QuickCaptureForm({
               ) : (
                 <>
                   <Send className="w-4 h-4" />
-                  Create Task
+                  Create Action Item
                 </>
               )}
             </button>

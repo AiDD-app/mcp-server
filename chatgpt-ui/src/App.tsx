@@ -13,17 +13,19 @@ import { QuickCaptureForm } from './components/QuickCaptureForm';
 import { DependencyGraph } from './components/DependencyGraph';
 import { FocusModeWidget } from './components/FocusModeWidget';
 import { AIScoringResultsCard } from './components/AIScoringResultsCard';
+import { GroupedTasksView } from './components/GroupedTasksView';
 import type { Task } from './types/openai';
 import './index.css';
 
-type WidgetView = 'dashboard' | 'extraction' | 'energy' | 'capture' | 'dependencies' | 'focus' | 'scoring';
+type WidgetView = 'dashboard' | 'extraction' | 'energy' | 'capture' | 'dependencies' | 'focus' | 'scoring' | 'tasks';
 
 export default function App() {
-  const { theme, isReady, toolResponseMetadata } = useOpenAI();
+  const { theme, isReady, toolResponseMetadata, displayMode, maxHeight } = useOpenAI();
   const [currentView, setCurrentView] = useState<WidgetView>('dashboard');
   const [focusTask, setFocusTask] = useState<Task | null>(null);
 
   const isDark = theme === 'dark';
+  const isFullscreen = displayMode === 'fullscreen';
 
   const viewFromMetadata = useMemo<WidgetView | null>(() => {
     if (!toolResponseMetadata) return null;
@@ -44,6 +46,8 @@ export default function App() {
           return 'focus';
         case 'ui://widget/ai-scoring.html':
           return 'scoring';
+        case 'ui://widget/grouped-tasks.html':
+          return 'tasks';
         default:
           return null;
       }
@@ -91,17 +95,27 @@ export default function App() {
     );
   }
 
+  // Dynamic styles based on display mode
+  const containerStyle: React.CSSProperties = {
+    minHeight: isFullscreen ? '100vh' : 'auto',
+    height: maxHeight && !isFullscreen ? `${maxHeight}px` : 'auto',
+  };
+
   return (
-    <div className={`min-h-screen ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}>
+    <div
+      className={`flex flex-col ${isFullscreen ? 'h-screen' : 'min-h-screen'} ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}
+      style={containerStyle}
+    >
       {/* Navigation */}
-      <nav className={`sticky top-0 z-40 border-b ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-        <div className="max-w-4xl mx-auto px-4">
+      <nav className={`sticky top-0 z-40 border-b flex-shrink-0 ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+        <div className={isFullscreen ? 'px-6' : 'max-w-4xl mx-auto px-4'}>
           <div className="flex items-center gap-1 overflow-x-auto py-2 -mx-4 px-4">
             {[
               { id: 'dashboard', label: '📊 Dashboard' },
-              { id: 'extraction', label: '📝 Extraction' },
+              { id: 'tasks', label: '📋 Tasks' },
+              { id: 'extraction', label: '📝 Action Items' },
               { id: 'energy', label: '🔋 Energy' },
-              { id: 'capture', label: '⚡ Capture' },
+              { id: 'capture', label: '➕ New Item' },
               { id: 'dependencies', label: '🔗 Dependencies' },
               { id: 'focus', label: '🎯 Focus' },
               { id: 'scoring', label: '🧠 AI Scoring' },
@@ -125,11 +139,17 @@ export default function App() {
       </nav>
 
       {/* Content */}
-      <main className="max-w-4xl mx-auto p-4">
+      <main className={`flex-1 overflow-auto ${isFullscreen ? 'p-6' : 'max-w-4xl mx-auto p-4'}`}>
         {currentView === 'dashboard' && (
           <TaskPriorityDashboard
             onTaskSelect={handleTaskSelect}
             maxTasks={10}
+          />
+        )}
+
+        {currentView === 'tasks' && (
+          <GroupedTasksView
+            onTaskSelect={handleTaskSelect}
           />
         )}
 
@@ -148,7 +168,7 @@ export default function App() {
 
         {currentView === 'capture' && (
           <QuickCaptureForm
-            onTaskCreated={(task) => console.log('Created:', task)}
+            onActionItemCreated={(actionItem) => console.log('Created:', actionItem)}
             defaultExpanded={true}
           />
         )}

@@ -8,7 +8,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { useTasks, useAIJobs, useOpenAI } from '../hooks/useOpenAI';
+import { useTasks, useAIJobs, useOpenAI, useActionItems } from '../hooks/useOpenAI';
 import type { Task } from '../types/openai';
 import { cn } from '../utils/cn';
 import { getTasksFromToolOutput } from '../utils/toolOutput';
@@ -43,8 +43,9 @@ interface TaskFilters {
   category?: string;
   maxEnergy?: 'low' | 'medium' | 'high';
   timeBudgetMinutes?: number;
-  onlyAIScored?: boolean;
   includeCompleted?: boolean;
+  actionItemId?: string;
+  priority?: 'low' | 'medium' | 'high' | 'urgent';
 }
 
 interface TaskPriorityDashboardProps {
@@ -104,8 +105,10 @@ export function TaskPriorityDashboard({
   maxTasks = 50,
   showCompleted = false,
 }: TaskPriorityDashboardProps) {
-  const { theme, requestFullscreen, toolOutput } = useOpenAI();
+  const { theme, requestFullscreen, toolOutput, displayMode } = useOpenAI();
   const { tasks: fetchedTasks, loading, error, fetchTasks, completeTask } = useTasks();
+  const { actionItems, fetchActionItems } = useActionItems();
+  const isFullscreen = displayMode === 'fullscreen';
   const { scoreTasks, jobs, fetchJobs } = useAIJobs();
   const [isScoring, setIsScoring] = useState(false);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
@@ -130,6 +133,7 @@ export function TaskPriorityDashboard({
       console.log('[TaskPriorityDashboard] Fresh fetch complete');
     });
     fetchJobs(true);
+    fetchActionItems(); // Fetch action items for the filter dropdown
   }, []);
 
   // Helper to update filters and trigger refetch via useEffect
@@ -175,9 +179,24 @@ export function TaskPriorityDashboard({
     }
   }, [lastScoringJob?.status, fetchTasks, maxTasks, filters]);
 
-  const filteredTasks = showCompleted
+  // Apply client-side filtering
+  let filteredTasks = showCompleted
     ? tasks
     : tasks.filter((t) => !t.isCompleted);
+
+  // Filter by action item (client-side fallback if backend doesn't support this filter)
+  if (filters.actionItemId) {
+    filteredTasks = filteredTasks.filter((t) =>
+      t.actionItemId === filters.actionItemId
+    );
+  }
+
+  // Filter by priority of parent action item (client-side fallback)
+  if (filters.priority) {
+    filteredTasks = filteredTasks.filter((t) =>
+      t.sourceActionItem?.priority?.toLowerCase() === filters.priority?.toLowerCase()
+    );
+  }
 
   // Trust the server's scoreWithDependencies ordering - don't re-sort client-side
   // This ensures widget matches the text response from ChatGPT
@@ -229,9 +248,12 @@ export function TaskPriorityDashboard({
 
   return (
     <Tooltip.Provider>
-      <div className="min-h-full bg-[#0d1117] text-white">
+      <div className={cn(
+        'bg-[#0d1117] text-white flex flex-col',
+        isFullscreen ? 'h-full' : 'min-h-full'
+      )}>
         {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-800 flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-gray-800 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-3">
             <Sparkles className="w-6 h-6 text-purple-500" />
             <h1 className="text-xl font-bold text-white">Priority Dashboard</h1>
@@ -295,7 +317,7 @@ export function TaskPriorityDashboard({
 
         {/* Filter Panel */}
         {showFilters && (
-          <div className="px-6 py-4 bg-[#161b22] border-b border-gray-800">
+          <div className="px-6 py-4 bg-[#161b22] border-b border-gray-800 flex-shrink-0">
             <div className="flex flex-wrap gap-4 items-end">
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-medium text-gray-400">Category</label>
@@ -339,18 +361,38 @@ export function TaskPriorityDashboard({
                 </select>
               </div>
 
-              <label className="flex items-center gap-2 cursor-pointer py-2">
-                <Checkbox.Root
-                  checked={filters.onlyAIScored || false}
-                  onCheckedChange={(checked) => updateFilter('onlyAIScored', checked === true ? true : undefined)}
-                  className="w-5 h-5 rounded border border-gray-600 flex items-center justify-center data-[state=checked]:bg-purple-600 data-[state=checked]:border-purple-600"
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-gray-400">Action Item</label>
+                <select
+                  value={filters.actionItemId || ''}
+                  onChange={(e) => updateFilter('actionItemId', e.target.value || undefined)}
+                  className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm min-w-[180px] max-w-[250px]"
                 >
-                  <Checkbox.Indicator>
-                    <CheckCircle2 className="w-3 h-3 text-white" />
-                  </Checkbox.Indicator>
-                </Checkbox.Root>
-                <span className="text-sm text-gray-300">AI Scored Only</span>
-              </label>
+                  <option value="">All Action Items</option>
+                  {actionItems
+                    .filter((item) => !item.isCompleted)
+                    .map((item) => (
+                      <option key={item.id} value={item.id} title={item.title}>
+                        {item.title.length > 30 ? `${item.title.substring(0, 30)}...` : item.title}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-gray-400">Priority</label>
+                <select
+                  value={filters.priority || ''}
+                  onChange={(e) => updateFilter('priority', (e.target.value as 'low' | 'medium' | 'high' | 'urgent') || undefined)}
+                  className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm min-w-[120px]"
+                >
+                  <option value="">Any Priority</option>
+                  <option value="urgent">🔴 Urgent</option>
+                  <option value="high">🟠 High</option>
+                  <option value="medium">🟡 Medium</option>
+                  <option value="low">🟢 Low</option>
+                </select>
+              </div>
 
               {activeFilterCount > 0 && (
                 <button
@@ -390,7 +432,7 @@ export function TaskPriorityDashboard({
         )}
 
         {/* Content */}
-        <div className="p-6">
+        <div className={cn('p-6', isFullscreen && 'flex-1 overflow-y-auto')}>
           {loading && !tasks.length ? (
             <div className="flex items-center justify-center py-12">
               <RefreshCw className="w-8 h-8 animate-spin text-purple-500" />
@@ -744,7 +786,7 @@ export function TaskPriorityDashboard({
 
         {/* Footer with AI status */}
         {jobs.some((j) => j.status === 'processing') && (
-          <div className="px-6 py-3 border-t border-gray-800 flex items-center gap-2 text-sm text-gray-400">
+          <div className="px-6 py-3 border-t border-gray-800 flex items-center gap-2 text-sm text-gray-400 flex-shrink-0">
             <RefreshCw className="w-4 h-4 animate-spin text-purple-500" />
             <span>AI is processing your tasks...</span>
           </div>

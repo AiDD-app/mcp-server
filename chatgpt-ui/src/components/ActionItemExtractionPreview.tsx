@@ -18,8 +18,6 @@ import {
   Flag,
   Calendar,
   Tag,
-  ChevronDown,
-  ChevronUp,
   Zap,
   Mail,
   StickyNote,
@@ -39,14 +37,14 @@ export function ActionItemExtractionPreview({
   onConvertToTasks,
   onDismiss,
 }: ActionItemExtractionPreviewProps) {
-  const { theme, toolOutput } = useOpenAI();
+  const { theme, toolOutput, displayMode } = useOpenAI();
   const { actionItems: fetchedActionItems, loading, fetchActionItems, convertToTasks } = useActionItems();
   const { jobs, fetchJobs } = useAIJobs();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
   const [isConverting, setIsConverting] = useState(false);
 
   const isDark = theme === 'dark';
+  const isFullscreen = displayMode === 'fullscreen';
 
   // Use pre-populated toolOutput.actionItems if available (from tool call that triggered this widget)
   // Otherwise fall back to fetched action items
@@ -99,18 +97,6 @@ export function ActionItemExtractionPreview({
     setSelectedIds(new Set());
   };
 
-  const toggleNoteExpanded = (noteId: string) => {
-    setExpandedNotes((prev) => {
-      const next = new Set(prev);
-      if (next.has(noteId)) {
-        next.delete(noteId);
-      } else {
-        next.add(noteId);
-      }
-      return next;
-    });
-  };
-
   const handleConvert = async () => {
     if (selectedIds.size === 0) return;
     const ids = Array.from(selectedIds);
@@ -155,24 +141,34 @@ export function ActionItemExtractionPreview({
     return 'text-red-500';
   };
 
-  // Group action items by source note
-  const groupedItems = actionItems.reduce((acc, item) => {
-    const key = item.sourceNoteId || 'unknown';
-    if (!acc[key]) {
-      acc[key] = {
-        noteTitle: item.source || 'Unknown Source',
-        items: [],
-      };
+  // Priority order for sorting (urgent > high > medium > low)
+  const priorityOrder: Record<string, number> = {
+    urgent: 0,
+    critical: 0,
+    high: 1,
+    medium: 2,
+    low: 3,
+  };
+
+  // Sort action items by priority descending (most important first)
+  const sortedActionItems = [...actionItems].sort((a, b) => {
+    const aPriority = priorityOrder[(a.priority || 'medium').toLowerCase()] ?? 2;
+    const bPriority = priorityOrder[(b.priority || 'medium').toLowerCase()] ?? 2;
+    if (aPriority !== bPriority) {
+      return aPriority - bPriority;
     }
-    acc[key].items.push(item);
-    return acc;
-  }, {} as Record<string, { noteTitle: string; items: ActionItem[] }>);
+    // Secondary sort by confidence (higher confidence first)
+    const aConf = a.confidence ?? 0;
+    const bConf = b.confidence ?? 0;
+    return bConf - aConf;
+  });
 
   return (
     <Tooltip.Provider>
       <div
         className={cn(
-          'rounded-xl border shadow-sm overflow-hidden flex flex-col h-full',
+          'rounded-xl border shadow-sm overflow-hidden flex flex-col',
+          isFullscreen ? 'h-full' : 'h-auto',
           isDark ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'
         )}
       >
@@ -186,7 +182,7 @@ export function ActionItemExtractionPreview({
           <div className="flex items-center gap-2">
             <FileText className="w-5 h-5 text-blue-500" />
             <h2 className={cn('font-semibold', isDark ? 'text-white' : 'text-gray-900')}>
-              Extracted Action Items
+              Action Items
             </h2>
             {actionItems.length > 0 && (
               <span
@@ -342,178 +338,140 @@ export function ActionItemExtractionPreview({
               </p>
             </div>
           ) : (
-            <div className="space-y-4">
-              {Object.entries(groupedItems).map(([noteId, group]) => (
+            <div className="space-y-2">
+              {/* Flat list of action items sorted by priority */}
+              {sortedActionItems.map((item) => (
                 <div
-                  key={noteId}
+                  key={item.id}
                   className={cn(
-                    'rounded-lg border overflow-hidden',
-                    isDark ? 'border-gray-700' : 'border-gray-200'
+                    'p-3 rounded-lg border flex items-start gap-3',
+                    isDark ? 'border-gray-700 hover:bg-gray-800' : 'border-gray-200 hover:bg-gray-50',
+                    item.isCompleted && 'opacity-50'
                   )}
                 >
-                  {/* Note Header */}
-                  <button
-                    onClick={() => toggleNoteExpanded(noteId)}
+                  <Checkbox.Root
+                    checked={selectedIds.has(item.id)}
+                    onCheckedChange={() => toggleSelect(item.id)}
+                    disabled={item.isCompleted}
                     className={cn(
-                      'w-full px-3 py-2 flex items-center justify-between text-sm',
-                      isDark
-                        ? 'bg-gray-800 hover:bg-gray-750'
-                        : 'bg-gray-100 hover:bg-gray-200'
+                      'mt-0.5 w-5 h-5 rounded border flex items-center justify-center flex-shrink-0',
+                      isDark ? 'border-gray-600' : 'border-gray-300',
+                      selectedIds.has(item.id) && 'bg-blue-500 border-blue-500'
                     )}
                   >
-                    <div className="flex items-center gap-2">
-                      {getSourceIcon(group.noteTitle)}
-                      <span
-                        className={cn(
-                          'font-medium truncate max-w-xs',
-                          isDark ? 'text-gray-200' : 'text-gray-700'
-                        )}
-                      >
-                        {group.noteTitle}
-                      </span>
-                      <span
-                        className={cn(
-                          'text-xs px-1.5 py-0.5 rounded',
-                          isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-200 text-gray-500'
-                        )}
-                      >
-                        {group.items.length}
-                      </span>
-                    </div>
-                    {expandedNotes.has(noteId) ? (
-                      <ChevronUp className="w-4 h-4" />
-                    ) : (
-                      <ChevronDown className="w-4 h-4" />
-                    )}
-                  </button>
+                    <Checkbox.Indicator>
+                      <CheckCircle2 className="w-4 h-4 text-white" />
+                    </Checkbox.Indicator>
+                  </Checkbox.Root>
 
-                  {/* Action Items */}
-                  {expandedNotes.has(noteId) && (
-                    <div className="divide-y divide-gray-200 dark:divide-gray-700">
-                      {group.items.map((item) => (
-                        <div
-                          key={item.id}
+                  <div className="flex-1 min-w-0">
+                    <p
+                      className={cn(
+                        'font-medium',
+                        isDark ? 'text-white' : 'text-gray-900',
+                        item.isCompleted && 'line-through'
+                      )}
+                    >
+                      {item.title}
+                    </p>
+
+                    {item.description && (
+                      <p
+                        className={cn(
+                          'text-sm mt-1 line-clamp-2',
+                          isDark ? 'text-gray-400' : 'text-gray-500'
+                        )}
+                      >
+                        {item.description}
+                      </p>
+                    )}
+
+                    <div className="flex items-center gap-2 mt-2 flex-wrap">
+                      {/* Priority */}
+                      <span
+                        className={cn(
+                          'inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium',
+                          getPriorityColor(item.priority)
+                        )}
+                      >
+                        <Flag className="w-3 h-3" />
+                        {item.priority}
+                      </span>
+
+                      {/* Due Date */}
+                      {item.dueDate && (
+                        <span
                           className={cn(
-                            'p-3 flex items-start gap-3',
-                            isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-50',
-                            item.isCompleted && 'opacity-50'
+                            'inline-flex items-center gap-1 text-xs',
+                            isDark ? 'text-gray-400' : 'text-gray-500'
                           )}
                         >
-                          <Checkbox.Root
-                            checked={selectedIds.has(item.id)}
-                            onCheckedChange={() => toggleSelect(item.id)}
-                            disabled={item.isCompleted}
-                            className={cn(
-                              'mt-0.5 w-5 h-5 rounded border flex items-center justify-center flex-shrink-0',
-                              isDark ? 'border-gray-600' : 'border-gray-300',
-                              selectedIds.has(item.id) && 'bg-blue-500 border-blue-500'
-                            )}
-                          >
-                            <Checkbox.Indicator>
-                              <CheckCircle2 className="w-4 h-4 text-white" />
-                            </Checkbox.Indicator>
-                          </Checkbox.Root>
+                          <Calendar className="w-3 h-3" />
+                          {new Date(item.dueDate).toLocaleDateString()}
+                        </span>
+                      )}
 
-                          <div className="flex-1 min-w-0">
-                            <p
+                      {/* Source */}
+                      {item.source && (
+                        <span
+                          className={cn(
+                            'inline-flex items-center gap-1 text-xs',
+                            isDark ? 'text-gray-500' : 'text-gray-400'
+                          )}
+                        >
+                          {getSourceIcon(item.source)}
+                          <span className="truncate max-w-[100px]">{item.source}</span>
+                        </span>
+                      )}
+
+                      {/* Confidence */}
+                      {item.confidence !== undefined && (
+                        <Tooltip.Root>
+                          <Tooltip.Trigger asChild>
+                            <span
                               className={cn(
-                                'font-medium',
-                                isDark ? 'text-white' : 'text-gray-900',
-                                item.isCompleted && 'line-through'
+                                'text-xs',
+                                getConfidenceColor(item.confidence)
                               )}
                             >
-                              {item.title}
-                            </p>
-
-                            {item.description && (
-                              <p
-                                className={cn(
-                                  'text-sm mt-1 line-clamp-2',
-                                  isDark ? 'text-gray-400' : 'text-gray-500'
-                                )}
-                              >
-                                {item.description}
-                              </p>
+                              {Math.round(item.confidence)}% conf
+                            </span>
+                          </Tooltip.Trigger>
+                          <Tooltip.Content
+                            className={cn(
+                              'px-2 py-1 rounded text-xs',
+                              isDark ? 'bg-gray-700 text-white' : 'bg-gray-900 text-white'
                             )}
+                          >
+                            AI confidence score
+                          </Tooltip.Content>
+                        </Tooltip.Root>
+                      )}
 
-                            <div className="flex items-center gap-2 mt-2 flex-wrap">
-                              {/* Priority */}
-                              <span
-                                className={cn(
-                                  'inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium',
-                                  getPriorityColor(item.priority)
-                                )}
-                              >
-                                <Flag className="w-3 h-3" />
-                                {item.priority}
-                              </span>
-
-                              {/* Due Date */}
-                              {item.dueDate && (
-                                <span
-                                  className={cn(
-                                    'inline-flex items-center gap-1 text-xs',
-                                    isDark ? 'text-gray-400' : 'text-gray-500'
-                                  )}
-                                >
-                                  <Calendar className="w-3 h-3" />
-                                  {new Date(item.dueDate).toLocaleDateString()}
-                                </span>
+                      {/* Tags */}
+                      {item.tags && item.tags.length > 0 && (
+                        <div className="flex items-center gap-1">
+                          <Tag className="w-3 h-3 text-gray-400" />
+                          {item.tags.slice(0, 2).map((tag) => (
+                            <span
+                              key={tag}
+                              className={cn(
+                                'text-xs px-1.5 rounded',
+                                isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-600'
                               )}
-
-                              {/* Confidence */}
-                              {item.confidence !== undefined && (
-                                <Tooltip.Root>
-                                  <Tooltip.Trigger asChild>
-                                    <span
-                                      className={cn(
-                                        'text-xs',
-                                        getConfidenceColor(item.confidence)
-                                      )}
-                                    >
-                                      {/* Confidence is already 0-100 from backend, don't multiply again */}
-                                      {Math.round(item.confidence)}% conf
-                                    </span>
-                                  </Tooltip.Trigger>
-                                  <Tooltip.Content
-                                    className={cn(
-                                      'px-2 py-1 rounded text-xs',
-                                      isDark ? 'bg-gray-700 text-white' : 'bg-gray-900 text-white'
-                                    )}
-                                  >
-                                    AI confidence score
-                                  </Tooltip.Content>
-                                </Tooltip.Root>
-                              )}
-
-                              {/* Tags */}
-                              {item.tags && item.tags.length > 0 && (
-                                <div className="flex items-center gap-1">
-                                  <Tag className="w-3 h-3 text-gray-400" />
-                                  {item.tags.slice(0, 2).map((tag) => (
-                                    <span
-                                      key={tag}
-                                      className={cn(
-                                        'text-xs px-1.5 rounded',
-                                        isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-600'
-                                      )}
-                                    >
-                                      {tag}
-                                    </span>
-                                  ))}
-                                  {item.tags.length > 2 && (
-                                    <span className="text-xs text-gray-400">
-                                      +{item.tags.length - 2}
-                                    </span>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          </div>
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                          {item.tags.length > 2 && (
+                            <span className="text-xs text-gray-400">
+                              +{item.tags.length - 2}
+                            </span>
+                          )}
                         </div>
-                      ))}
+                      )}
                     </div>
-                  )}
+                  </div>
                 </div>
               ))}
             </div>

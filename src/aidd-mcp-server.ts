@@ -62,7 +62,7 @@ export class AiDDMCPServer {
     this.server = new Server(
       {
         name: 'AiDD',
-        version: '4.4.0',
+        version: '4.5.0',
         icons: [{
           src: `${BASE_URL}/icon.png`,
           mimeType: 'image/png',
@@ -1531,7 +1531,14 @@ export class AiDDMCPServer {
 
       // Use original args for display since we know the plaintext
       const response = `✅ **Action Item Created**\n\n**Title:** ${title}\n**ID:** ${createdItem.id}\n**Priority:** ${normalizedPriority}\n**Category:** ${normalizedCategory}\n${dueDate ? `**Due Date:** ${dueDate}` : ''}\n${tags && tags.length > 0 ? `**Tags:** ${tags.join(', ')}` : ''}\n\nThe action item has been saved to your AiDD account.`;
-      return { content: [{ type: 'text', text: response } as TextContent] };
+      return {
+        content: [{ type: 'text', text: response } as TextContent],
+        // Include structured content for widget consumption
+        structuredContent: {
+          success: true,
+          actionItem: createdItem,
+        },
+      };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error creating action item: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
     }
@@ -1920,20 +1927,29 @@ export class AiDDMCPServer {
   }
 
   /**
-   * Sort tasks matching iOS DashboardTasksData.sortTasksRespectingDependencies algorithm.
+   * Sort tasks by due date first, then by AI score respecting dependencies within each date.
+   * Matches iOS DashboardTasksData.sortTasksRespectingDependencies with date-first grouping.
    *
-   * Algorithm (matches iOS exactly):
-   * 1. Sort all tasks by AI score (highest first)
-   * 2. Build "critical paths" for each task (task + all its prerequisites)
-   * 3. Greedily fill time window:
-   *    - For each task in score order, collect all prerequisites recursively
-   *    - If task + prerequisites fit in remaining time, add prerequisites first, then task
-   * 4. Final topological sort to ensure dependencies appear before dependents
+   * Algorithm:
+   * 1. Group tasks by due date (earliest dates first, no-date tasks last)
+   * 2. For each date group:
+   *    a. Sort tasks by AI score (highest first)
+   *    b. Build "critical paths" for each task (task + prerequisites)
+   *    c. Greedily fill time window within the date
+   *    d. Apply topological sort within the group
+   * 3. Concatenate all date groups in order
    */
   private sortTasksByChainPriority(tasks: any[], timeBudgetMinutes?: number): any[] {
     if (tasks.length === 0) return [];
 
     console.log('[MCP:sortTasksByChainPriority] Starting with', tasks.length, 'tasks, timeBudget:', timeBudgetMinutes);
+
+    // Helper to get date key (YYYY-MM-DD) for grouping
+    const getDateKey = (task: any): string => {
+      if (!task.dueDate) return 'NO_DATE';
+      const date = new Date(task.dueDate);
+      return date.toISOString().split('T')[0]; // YYYY-MM-DD
+    };
 
     // Helper to get score from task
     const getOverallScore = (task: any): number => {
@@ -2029,77 +2045,91 @@ export class AiDDMCPServer {
       return prerequisites;
     };
 
-    // Step 1: Sort tasks by score (highest first) - iOS: tasksSortedByScore
-    const tasksSortedByScore = [...tasks].sort((a, b) => getOverallScore(b) - getOverallScore(a));
+    // Group tasks by date (earliest first, no-date last)
+    const tasksByDate = new Map<string, any[]>();
+    tasks.forEach(task => {
+      const dateKey = getDateKey(task);
+      if (!tasksByDate.has(dateKey)) {
+        tasksByDate.set(dateKey, []);
+      }
+      tasksByDate.get(dateKey)!.push(task);
+    });
 
-    // Step 2 & 3: Greedy time-filling algorithm (iOS: critical paths + greedy filling)
-    const selectedTasks: any[] = [];
-    const selectedIds = new Set<string>();
+    // Sort date keys (earliest first, NO_DATE last)
+    const sortedDateKeys = Array.from(tasksByDate.keys()).sort((a, b) => {
+      if (a === 'NO_DATE') return 1;
+      if (b === 'NO_DATE') return -1;
+      return a.localeCompare(b);
+    });
+
+    console.log('[MCP:sortTasksByChainPriority] Grouped into', sortedDateKeys.length, 'date groups:', sortedDateKeys.slice(0, 5).join(', '));
+
+    // Process each date group
+    const finalResult: any[] = [];
+    const globalSelectedIds = new Set<string>();
     let totalTimeMinutes = 0;
     const hasTimeBudget = timeBudgetMinutes !== undefined && timeBudgetMinutes > 0;
     const availableMinutes = hasTimeBudget ? timeBudgetMinutes : Infinity;
 
-    // Log first 5 tasks in score order for debugging
-    console.log('[MCP:sortTasksByChainPriority] First 5 tasks by score:',
-      tasksSortedByScore.slice(0, 5).map(t => ({
-        id: t.id?.slice(-8),
-        title: t.title?.slice(0, 25),
-        score: getOverallScore(t),
-        deps: (t.dependsOnTaskIds || []).length
-      })));
+    for (const dateKey of sortedDateKeys) {
+      const dateTasks = tasksByDate.get(dateKey)!;
 
-    for (const task of tasksSortedByScore) {
-      if (!task.id || selectedIds.has(task.id)) continue;
+      // Sort this date's tasks by score (highest first)
+      const tasksSortedByScore = [...dateTasks].sort((a, b) => getOverallScore(b) - getOverallScore(a));
 
-      // Collect all prerequisites for this task
-      const prerequisiteIds = collectAllPrerequisites(task.id);
-      const tasksToAdd: any[] = [];
-      let chainDuration = getEstimatedMinutes(task);
+      console.log(`[MCP:sortTasksByChainPriority] Processing date '${dateKey}' with ${dateTasks.length} tasks`);
 
-      // Log if task has prerequisites
-      if (prerequisiteIds.length > 0) {
-        console.log('[MCP:sortTasksByChainPriority] Task', task.id?.slice(-8),
-          'has', prerequisiteIds.length, 'prerequisites:',
-          prerequisiteIds.map(id => id.slice(-8)).join(','));
-      }
+      // Greedy time-filling algorithm for this date group
+      const dateSelectedTasks: any[] = [];
 
-      // Check if all prerequisites can fit
-      for (const prereqId of prerequisiteIds) {
-        if (selectedIds.has(prereqId)) continue; // Already selected
+      for (const task of tasksSortedByScore) {
+        if (!task.id || globalSelectedIds.has(task.id)) continue;
 
-        const prereqTask = taskById.get(prereqId);
-        if (!prereqTask) continue;
+        // Collect all prerequisites for this task
+        const prerequisiteIds = collectAllPrerequisites(task.id);
+        const tasksToAdd: any[] = [];
+        let chainDuration = getEstimatedMinutes(task);
 
-        tasksToAdd.push(prereqTask);
-        chainDuration += getEstimatedMinutes(prereqTask);
-      }
+        // Check if all prerequisites can fit
+        for (const prereqId of prerequisiteIds) {
+          if (globalSelectedIds.has(prereqId)) continue; // Already selected globally
 
-      // Check if entire chain fits in remaining time
-      if (hasTimeBudget && totalTimeMinutes + chainDuration > availableMinutes) {
-        continue; // Skip this task and its chain
-      }
+          const prereqTask = taskById.get(prereqId);
+          if (!prereqTask) continue;
 
-      // Add prerequisites first (in dependency order)
-      for (const prereqTask of tasksToAdd) {
-        if (!selectedIds.has(prereqTask.id)) {
-          selectedTasks.push(prereqTask);
-          selectedIds.add(prereqTask.id);
-          totalTimeMinutes += getEstimatedMinutes(prereqTask);
+          tasksToAdd.push(prereqTask);
+          chainDuration += getEstimatedMinutes(prereqTask);
         }
+
+        // Check if entire chain fits in remaining time
+        if (hasTimeBudget && totalTimeMinutes + chainDuration > availableMinutes) {
+          continue; // Skip this task and its chain
+        }
+
+        // Add prerequisites first (in dependency order)
+        for (const prereqTask of tasksToAdd) {
+          if (!globalSelectedIds.has(prereqTask.id)) {
+            dateSelectedTasks.push(prereqTask);
+            globalSelectedIds.add(prereqTask.id);
+            totalTimeMinutes += getEstimatedMinutes(prereqTask);
+          }
+        }
+
+        // Add the main task
+        dateSelectedTasks.push(task);
+        globalSelectedIds.add(task.id);
+        totalTimeMinutes += getEstimatedMinutes(task);
       }
 
-      // Add the main task
-      selectedTasks.push(task);
-      selectedIds.add(task.id);
-      totalTimeMinutes += getEstimatedMinutes(task);
+      // Apply topological sort within this date group
+      const sortedDateTasks = this.topologicalSortByScore(dateSelectedTasks, taskById, getDependencyIds, getOverallScore);
+      finalResult.push(...sortedDateTasks);
+
+      console.log(`[MCP:sortTasksByChainPriority] Added ${sortedDateTasks.length} tasks from date '${dateKey}' (total: ${finalResult.length})`);
     }
 
-    // Step 4: Final topological sort (iOS: topologicalSortTasks)
-    // Process in score order, visiting dependencies first
-    console.log('[MCP:sortTasksByChainPriority] selectedTasks before topological sort:', selectedTasks.length);
-    const result = this.topologicalSortByScore(selectedTasks, taskById, getDependencyIds, getOverallScore);
-    console.log('[MCP:sortTasksByChainPriority] Final result:', result.length, 'tasks');
-    return result;
+    console.log('[MCP:sortTasksByChainPriority] Final result:', finalResult.length, 'tasks');
+    return finalResult;
   }
 
   /**
@@ -2504,13 +2534,58 @@ export class AiDDMCPServer {
       // Filter out completed tasks for text response (matches widget's default showCompleted=false)
       const pendingTasks = structuredTasks.filter((t: any) => t.status !== 'completed');
 
-      const tasksList = pendingTasks.map((task: any, i: number) => {
-        const statusIcon = '⬜';
-        const scoreDisplay = task.score !== undefined ? ` [${task.score}%]` : '';
-        const timeDisplay = task.estimatedTime ? ` ~${task.estimatedTime}min` : '';
-        const energyEmoji = task.energyRequired === 'high' ? '⚡' : task.energyRequired === 'low' ? '🔋' : '';
-        const sourceDisplay = task.sourceActionItem ? ` ← "${task.sourceActionItem.title}"` : '';
-        return `${i + 1}. ${statusIcon} **${task.title}** (ID: \`${task.id}\`)${scoreDisplay}${timeDisplay}${energyEmoji}${sourceDisplay}`;
+      // Group tasks by date for text display
+      const tasksByDateForText: { [dateKey: string]: typeof pendingTasks } = {};
+      pendingTasks.forEach((task: any) => {
+        const dateKey = task.dueDate
+          ? new Date(task.dueDate).toISOString().split('T')[0]
+          : 'NO_DATE';
+        if (!tasksByDateForText[dateKey]) {
+          tasksByDateForText[dateKey] = [];
+        }
+        tasksByDateForText[dateKey].push(task);
+      });
+
+      // Format date label for text
+      const formatTextDateLabel = (dateKey: string): string => {
+        if (dateKey === 'NO_DATE') return '📅 No Due Date';
+        const date = new Date(dateKey + 'T00:00:00');
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+
+        if (date.getTime() === today.getTime()) return '📅 Today';
+        if (date.getTime() === tomorrow.getTime()) return '📅 Tomorrow';
+
+        const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+        const monthDay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        return `📅 ${dayName}, ${monthDay}`;
+      };
+
+      // Sort date keys (earliest first, NO_DATE last)
+      const sortedTextDateKeys = Object.keys(tasksByDateForText).sort((a, b) => {
+        if (a === 'NO_DATE') return 1;
+        if (b === 'NO_DATE') return -1;
+        return a.localeCompare(b);
+      });
+
+      // Build grouped task list
+      let taskIndex = 0;
+      const tasksList = sortedTextDateKeys.map(dateKey => {
+        const dateTasks = tasksByDateForText[dateKey];
+        const dateLabel = formatTextDateLabel(dateKey);
+        const dateTasksFormatted = dateTasks.map((task: any) => {
+          taskIndex++;
+          const statusIcon = '⬜';
+          const scoreDisplay = task.score !== undefined ? ` [${task.score}%]` : '';
+          const timeDisplay = task.estimatedTime ? ` ~${task.estimatedTime}min` : '';
+          const dueDateTimeDisplay = task.dueDate ? ` 🕐${new Date(task.dueDate).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : '';
+          const energyEmoji = task.energyRequired === 'high' ? '⚡' : task.energyRequired === 'low' ? '🔋' : '';
+          const sourceDisplay = task.sourceActionItem ? ` ← "${task.sourceActionItem.title}"` : '';
+          return `${taskIndex}. ${statusIcon} **${task.title}** (ID: \`${task.id}\`)${scoreDisplay}${timeDisplay}${dueDateTimeDisplay}${energyEmoji}${sourceDisplay}`;
+        }).join('\n');
+        return `\n**${dateLabel}**\n${dateTasksFormatted}`;
       }).join('\n');
 
       // Build pagination info for the response
@@ -2528,6 +2603,31 @@ export class AiDDMCPServer {
       };
 
       if (includeWidget) {
+        // Group tasks by date for widget display
+        const tasksByDate: { [dateKey: string]: typeof structuredTasks } = {};
+        structuredTasks.forEach((task: any) => {
+          const dateKey = task.dueDate
+            ? new Date(task.dueDate).toISOString().split('T')[0]
+            : 'NO_DATE';
+          if (!tasksByDate[dateKey]) {
+            tasksByDate[dateKey] = [];
+          }
+          tasksByDate[dateKey].push(task);
+        });
+
+        // Sort date keys and create ordered groups array
+        const sortedDateKeys = Object.keys(tasksByDate).sort((a, b) => {
+          if (a === 'NO_DATE') return 1;
+          if (b === 'NO_DATE') return -1;
+          return a.localeCompare(b);
+        });
+
+        const dateGroups = sortedDateKeys.map(dateKey => ({
+          dateKey,
+          label: dateKey === 'NO_DATE' ? 'No Due Date' : formatDateLabel(dateKey),
+          tasks: tasksByDate[dateKey],
+        }));
+
         result.structuredContent = {
           success: true,
           // Pagination metadata
@@ -2540,11 +2640,30 @@ export class AiDDMCPServer {
             nextOffset: hasMore ? offset + limit : null,
           },
           totalTasks: total, // Keep for backwards compatibility
-          tasks: structuredTasks,
+          tasks: structuredTasks, // Flat list (already sorted by date, then dependencies)
+          // Date-grouped view for widget display
+          dateGroups,
+          sortOrder: 'dueDateThenDependencies',
           // Let the widget know about encryption issues
           hasEncryptedItems: hasEncryptedTasks,
           encryptedItemCount: encryptedTaskCount,
         };
+      }
+
+      // Helper to format date label
+      function formatDateLabel(dateKey: string): string {
+        const date = new Date(dateKey + 'T00:00:00');
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+
+        if (date.getTime() === today.getTime()) return 'Today';
+        if (date.getTime() === tomorrow.getTime()) return 'Tomorrow';
+
+        const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+        const monthDay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        return `${dayName}, ${monthDay}`;
       }
 
       return result;
@@ -2600,7 +2719,10 @@ export class AiDDMCPServer {
       const sourceId = this.buildTaskSourceId(importKey);
 
       // Only include taskType in taskData if explicitly provided - don't default to 'administrative'
-      const taskData: Record<string, any> = { actionItemId: '', taskOrder: 1, title, description: description || '', estimatedTime, energyRequired, tags, dependsOnTaskOrders: [], dueDate, sourceId };
+      // FIX v3.2.21: Don't set actionItemId for direct task creation - leave it undefined
+      // Setting actionItemId: '' caused sync issues: empty string is falsy in JS (skipped by deduplication)
+      // but truthy in Swift (all tasks shared same key), causing duplicates and "Unknown Action Item" grouping
+      const taskData: Record<string, any> = { title, description: description || '', estimatedTime, energyRequired, tags, dependsOnTaskOrders: [], dueDate, sourceId };
       if (taskType) {
         taskData.taskType = taskType;
       }
@@ -2609,7 +2731,14 @@ export class AiDDMCPServer {
 
       // Use original args for display since we know the plaintext
       const response = `✅ **Task Created**\n\n**Title:** ${title}\n**ID:** ${createdTask.id}\n**Estimated Time:** ${estimatedTime} minutes\n**Energy Required:** ${energyRequired}\n${taskType ? `**Task Type:** ${taskType}\n` : ''}${dueDate ? `**Due Date:** ${dueDate}` : ''}\n${tags && tags.length > 0 ? `**Tags:** ${tags.join(', ')}` : ''}\n\nThe task has been saved to your AiDD account.`;
-      return { content: [{ type: 'text', text: response } as TextContent] };
+      return {
+        content: [{ type: 'text', text: response } as TextContent],
+        // Include structured content for widget consumption
+        structuredContent: {
+          success: true,
+          task: createdTask,
+        },
+      };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error creating task: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
     }
@@ -2664,9 +2793,9 @@ export class AiDDMCPServer {
         seenKeys.add(dedupeKey);
 
         const tags = Array.isArray(task.tags) ? task.tags : [];
+        // FIX v3.2.21: Don't set actionItemId for direct task creation - leave it undefined
+        // Setting actionItemId: '' caused sync issues (see handleCreateTask comment)
         const taskData: Record<string, any> = {
-          actionItemId: '',
-          taskOrder: 1,
           title,
           description,
           estimatedTime,
@@ -3359,7 +3488,14 @@ You didn't provide specific action item IDs, and \`convertAll\` was not explicit
       if (!taskId) throw new Error('Task ID is required');
       const updatedTask = await this.backendClient.updateTask(taskId, updates);
       const response = `✅ **Task Updated**\n\n**Updated task:** ${updatedTask.title}\n• ID: ${updatedTask.id}\n• Type: ${updatedTask.taskType || 'administrative'}\n• Energy: ${updatedTask.energyRequired || 'medium'}\n• Estimated: ${updatedTask.estimatedTime || 15} min\n${updatedTask.score ? `• Score: ${updatedTask.score}` : ''}\n${updatedTask.isCompleted ? '• Status: ✅ Completed' : '• Status: Pending'}\n• Updated: ${new Date(updatedTask.updatedAt).toLocaleString()}\n${updatedTask.dueDate ? `• Due: ${new Date(updatedTask.dueDate).toLocaleDateString()}` : ''}\n${updatedTask.tags && updatedTask.tags.length > 0 ? `• Tags: ${updatedTask.tags.join(', ')}` : ''}`;
-      return { content: [{ type: 'text', text: response.trim() } as TextContent] };
+      return {
+        content: [{ type: 'text', text: response.trim() } as TextContent],
+        // Include structured content for widget consumption
+        structuredContent: {
+          success: true,
+          task: updatedTask,
+        },
+      };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ **Error updating task:** ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent], isError: true };
     }

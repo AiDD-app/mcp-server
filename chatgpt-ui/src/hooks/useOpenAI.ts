@@ -137,9 +137,10 @@ export function useTasks() {
       maxTimeMinutes?: number;
       timeBudgetMinutes?: number;
       maxEnergy?: 'low' | 'medium' | 'high';
-      onlyAIScored?: boolean;
       dueWithinDays?: number;
       includeCompleted?: boolean;
+      actionItemId?: string;
+      priority?: 'low' | 'medium' | 'high' | 'urgent';
     }
   ) => {
     setLoading(true);
@@ -153,9 +154,10 @@ export function useTasks() {
         if (filters.maxTimeMinutes !== undefined) params.maxTimeMinutes = filters.maxTimeMinutes;
         if (filters.timeBudgetMinutes !== undefined) params.timeBudgetMinutes = filters.timeBudgetMinutes;
         if (filters.maxEnergy) params.maxEnergy = filters.maxEnergy;
-        if (filters.onlyAIScored) params.onlyAIScored = filters.onlyAIScored;
         if (filters.dueWithinDays !== undefined) params.dueWithinDays = filters.dueWithinDays;
         if (filters.includeCompleted) params.includeCompleted = filters.includeCompleted;
+        if (filters.actionItemId) params.actionItemId = filters.actionItemId;
+        if (filters.priority) params.priority = filters.priority;
       }
       console.log('[useTasks] Fetching tasks with params:', params);
       const rawResult = await callTool('list_tasks', params);
@@ -286,6 +288,24 @@ export function useActionItems() {
     }
   }, [callTool]);
 
+  const createActionItem = useCallback(async (actionItem: Partial<ActionItem>) => {
+    setLoading(true);
+    try {
+      const result = unwrapToolResult<{ actionItem?: ActionItem }>(
+        await callTool('create_action_item', actionItem)
+      );
+      const createdItem = result.actionItem;
+      if (!createdItem) throw new Error('Action item creation failed');
+      setActionItems(prev => [createdItem, ...prev]);
+      return createdItem;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create action item');
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [callTool]);
+
   const convertToTasks = useCallback(async (actionItemIds: string[]) => {
     setLoading(true);
     try {
@@ -307,6 +327,7 @@ export function useActionItems() {
     loading,
     error,
     fetchActionItems,
+    createActionItem,
     convertToTasks,
   };
 }

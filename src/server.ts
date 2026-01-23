@@ -648,7 +648,7 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     service: 'AiDD MCP Web Connector',
-    version: '4.4.0',
+    version: '4.5.0',
     buildTimestamp: process.env.BUILD_TIMESTAMP || 'unknown',
     toolCount: 28,
     timestamp: new Date().toISOString(),
@@ -692,6 +692,39 @@ app.get('/debug/resources', (req, res) => {
     description: 'This shows what resources/list would return',
     resources: widgetResources,
   });
+});
+
+// Debug endpoint to check widget HTML content
+app.get('/debug/widget-check', async (req, res) => {
+  try {
+    // Dynamically import to get actual content being served
+    const { CHATGPT_UI_WIDGETS_HTML } = await import('./chatgpt-ui-resources.js');
+
+    // Extract navigation items from the HTML
+    const navMatch = CHATGPT_UI_WIDGETS_HTML.match(/\{id:"[^"]*",label:"[^"]*"\}/g) || [];
+
+    // Check for specific markers
+    const hasTasksTab = CHATGPT_UI_WIDGETS_HTML.includes('📋 Tasks');
+    const hasActionItems = CHATGPT_UI_WIDGETS_HTML.includes('📝 Action Items');
+    const hasOldExtraction = CHATGPT_UI_WIDGETS_HTML.includes('"📝 Extraction"');
+    const hasGroupedTasksView = CHATGPT_UI_WIDGETS_HTML.includes('Tasks by Action Item');
+
+    res.json({
+      timestamp: new Date().toISOString(),
+      buildTimestamp: process.env.BUILD_TIMESTAMP || 'unknown',
+      htmlLength: CHATGPT_UI_WIDGETS_HTML.length,
+      navigationItems: navMatch.slice(0, 10),
+      markers: {
+        hasTasksTab,
+        hasActionItems,
+        hasOldExtraction,
+        hasGroupedTasksView,
+      },
+      version: 'widget-check-v1',
+    });
+  } catch (error) {
+    res.status(500).json({ error: String(error) });
+  }
 });
 
 // Icon endpoint - serve optimized PNG (64x64 for better UI display)
@@ -744,7 +777,7 @@ app.get('/app-metadata', (req, res) => {
   res.json({
     name: 'AiDD',
     display_name: 'AiDD - ADHD Task Manager',
-    version: '4.4.0',
+    version: '4.5.0',
     description: 'ADHD-optimized productivity platform with AI-powered task management, action item extraction, and smart prioritization.',
     long_description: 'AiDD helps people with ADHD manage tasks more effectively by breaking down overwhelming projects into manageable pieces. Features include: AI-powered action item extraction from notes, ADHD-optimized task breakdown with time estimates and energy requirements, smart task prioritization that factors in urgency, importance, and your current energy level, and notes management with full-text search.',
     homepage_url: 'https://web.aidd.app',
@@ -813,7 +846,7 @@ app.get('/', (req, res) => {
   res.setHeader('X-MCP-Transport', 'sse');
   res.json({
     name: 'AiDD MCP Web Connector',
-    version: '4.4.0',
+    version: '4.5.0',
     description: 'ADHD-optimized productivity platform with AI-powered task management',
     homepage_url: 'https://web.aidd.app',
     icon: `${BASE_URL}/icon.png`,
@@ -859,7 +892,7 @@ app.get('/mcp', (req, res) => {
   res.setHeader('X-MCP-Transport', 'sse');
   res.json({
     name: 'AiDD',
-    version: '4.4.0',
+    version: '4.5.0',
     protocol: 'mcp',
     protocolVersion: '2024-11-05',
     transport: 'sse',

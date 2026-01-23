@@ -38,7 +38,7 @@ COPY favicon-32.png ./
 # Set environment
 ENV NODE_ENV=production
 ENV PORT=8080
-ENV BUILD_TIMESTAMP=20260117-ga-fix-v4.5.21
+ENV BUILD_TIMESTAMP=20260123-tasks-view-v4.5.22
 
 # Google Analytics 4 (server-side tracking via Measurement Protocol)
 # Shared measurement ID with Web App and iOS for unified analytics
