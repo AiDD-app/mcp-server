@@ -2487,6 +2487,7 @@ export class AiDDMCPServer {
           title: task.title,
           description: task.description || null,
           status: task.isCompleted ? 'completed' : 'pending',
+          isCompleted: task.isCompleted || false, // Widget filters on this field
           // AI Scores - include both 'score' (for widget sorting) and 'overallScore' (for display)
           score: overallScore, // Widget uses this for client-side sorting
           hasBeenAIScored: task.hasBeenAIScored || false,
