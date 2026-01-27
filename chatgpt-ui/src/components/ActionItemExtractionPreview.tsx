@@ -9,6 +9,7 @@ import React, { useEffect, useState } from 'react';
 import { useActionItems, useAIJobs, useOpenAI } from '../hooks/useOpenAI';
 import type { ActionItem, ExtractionResult } from '../types/openai';
 import { cn } from '../utils/cn';
+import { decodeHTMLEntities } from '../utils/htmlEntities';
 import { getActionItemsFromToolOutput } from '../utils/toolOutput';
 import {
   FileText,
@@ -21,6 +22,8 @@ import {
   Zap,
   Mail,
   StickyNote,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import * as Progress from '@radix-ui/react-progress';
 import * as Checkbox from '@radix-ui/react-checkbox';
@@ -42,9 +45,22 @@ export function ActionItemExtractionPreview({
   const { jobs, fetchJobs } = useAIJobs();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isConverting, setIsConverting] = useState(false);
+  const [expandedDescriptions, setExpandedDescriptions] = useState<Set<string>>(new Set());
 
   const isDark = theme === 'dark';
   const isFullscreen = displayMode === 'fullscreen';
+
+  const toggleDescriptionExpanded = (id: string) => {
+    setExpandedDescriptions((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
 
   // Use pre-populated toolOutput.actionItems if available (from tool call that triggered this widget)
   // Otherwise fall back to fetched action items
@@ -141,26 +157,9 @@ export function ActionItemExtractionPreview({
     return 'text-red-500';
   };
 
-  // Priority order for sorting (urgent > high > medium > low)
-  const priorityOrder: Record<string, number> = {
-    urgent: 0,
-    critical: 0,
-    high: 1,
-    medium: 2,
-    low: 3,
-  };
-
-  // Sort action items by priority descending (most important first)
+  // Sort action items by title ascending
   const sortedActionItems = [...actionItems].sort((a, b) => {
-    const aPriority = priorityOrder[(a.priority || 'medium').toLowerCase()] ?? 2;
-    const bPriority = priorityOrder[(b.priority || 'medium').toLowerCase()] ?? 2;
-    if (aPriority !== bPriority) {
-      return aPriority - bPriority;
-    }
-    // Secondary sort by confidence (higher confidence first)
-    const aConf = a.confidence ?? 0;
-    const bConf = b.confidence ?? 0;
-    return bConf - aConf;
+    return (a.title || '').localeCompare(b.title || '');
   });
 
   return (
@@ -372,18 +371,44 @@ export function ActionItemExtractionPreview({
                         item.isCompleted && 'line-through'
                       )}
                     >
-                      {item.title}
+                      {decodeHTMLEntities(item.title)}
                     </p>
 
                     {item.description && (
-                      <p
-                        className={cn(
-                          'text-sm mt-1 line-clamp-2',
-                          isDark ? 'text-gray-400' : 'text-gray-500'
+                      <div className="mt-1">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleDescriptionExpanded(item.id);
+                          }}
+                          className={cn(
+                            'flex items-center gap-1 text-xs',
+                            isDark ? 'text-gray-500 hover:text-gray-400' : 'text-gray-400 hover:text-gray-600'
+                          )}
+                        >
+                          {expandedDescriptions.has(item.id) ? (
+                            <>
+                              <ChevronUp className="w-3 h-3" />
+                              <span>Hide details</span>
+                            </>
+                          ) : (
+                            <>
+                              <ChevronDown className="w-3 h-3" />
+                              <span>Show details</span>
+                            </>
+                          )}
+                        </button>
+                        {expandedDescriptions.has(item.id) && (
+                          <p
+                            className={cn(
+                              'text-sm mt-2 whitespace-pre-wrap p-2 rounded',
+                              isDark ? 'text-gray-300 bg-gray-800/50' : 'text-gray-600 bg-gray-100'
+                            )}
+                          >
+                            {decodeHTMLEntities(item.description)}
+                          </p>
                         )}
-                      >
-                        {item.description}
-                      </p>
+                      </div>
                     )}
 
                     <div className="flex items-center gap-2 mt-2 flex-wrap">

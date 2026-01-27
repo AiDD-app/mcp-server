@@ -9,6 +9,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useTasks, useActionItems, useOpenAI } from '../hooks/useOpenAI';
 import type { Task, ActionItem, DependencyTask } from '../types/openai';
 import { cn } from '../utils/cn';
+import { decodeHTMLEntities } from '../utils/htmlEntities';
 import { getTasksFromToolOutput } from '../utils/toolOutput';
 import {
   ChevronDown,
@@ -390,7 +391,7 @@ export function GroupedTasksView({
                                   'text-sm font-medium text-white',
                                   task.isCompleted && 'line-through opacity-60'
                                 )}>
-                                  {task.title}
+                                  {decodeHTMLEntities(task.title)}
                                 </h4>
 
                                 {/* Meta info */}

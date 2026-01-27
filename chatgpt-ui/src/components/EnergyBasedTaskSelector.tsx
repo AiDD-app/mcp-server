@@ -9,6 +9,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useTasks, useOpenAI } from '../hooks/useOpenAI';
 import type { Task } from '../types/openai';
 import { cn } from '../utils/cn';
+import { decodeHTMLEntities } from '../utils/htmlEntities';
 import { getTasksFromToolOutput } from '../utils/toolOutput';
 import {
   Battery,
@@ -274,7 +275,7 @@ export function EnergyBasedTaskSelector({
                               isDark ? 'text-white' : 'text-gray-900'
                             )}
                           >
-                            {task.title}
+                            {decodeHTMLEntities(task.title)}
                           </span>
                         </div>
 

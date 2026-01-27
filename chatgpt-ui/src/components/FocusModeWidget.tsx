@@ -9,6 +9,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTasks, useOpenAI } from '../hooks/useOpenAI';
 import type { Task } from '../types/openai';
 import { cn } from '../utils/cn';
+import { decodeHTMLEntities } from '../utils/htmlEntities';
 import {
   Target,
   Play,
@@ -143,7 +144,7 @@ export function FocusModeWidget({
     if (task) {
       await completeTask(task.id);
       onComplete?.(task);
-      sendMessage(`Completed task: "${task.title}" after ${pomodorosCompleted} pomodoros`);
+      sendMessage(`Completed task: "${decodeHTMLEntities(task.title)}" after ${pomodorosCompleted} pomodoros`);
     }
   };
 
@@ -278,11 +279,11 @@ export function FocusModeWidget({
               isDark ? 'text-white' : 'text-gray-900'
             )}
           >
-            {task.title}
+            {decodeHTMLEntities(task.title)}
           </h3>
           {task.description && (
             <p className={cn('text-sm', isDark ? 'text-gray-400' : 'text-gray-500')}>
-              {task.description}
+              {decodeHTMLEntities(task.description)}
             </p>
           )}
         </div>

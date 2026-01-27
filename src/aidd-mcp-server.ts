@@ -102,6 +102,46 @@ export class AiDDMCPServer {
   }
 
   // =============================================================================
+  // TEXT SANITIZATION HELPERS
+  // =============================================================================
+
+  /**
+   * Decode HTML entities in text to prevent garbled display
+   * Handles common entities like &amp; &#x2F; &#x27; &quot; etc.
+   * FIX v3.3.5: LLMs often produce HTML-encoded text that needs decoding
+   */
+  private decodeHtmlEntities(text: string | undefined | null): string {
+    if (!text) return '';
+    return text
+      // Named entities
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      .replace(/&nbsp;/g, ' ')
+      // Numeric hex entities (&#x27; &#x2F; etc.)
+      .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+      // Numeric decimal entities (&#39; &#47; etc.)
+      .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)));
+  }
+
+  /**
+   * Sanitize text fields for storage - decode HTML entities and trim
+   */
+  private sanitizeText(text: string | undefined | null): string {
+    return this.decodeHtmlEntities(text).trim();
+  }
+
+  /**
+   * Sanitize an array of strings (e.g., tags)
+   */
+  private sanitizeTextArray(arr: string[] | undefined | null): string[] {
+    if (!arr || !Array.isArray(arr)) return [];
+    return arr.map(item => this.sanitizeText(item)).filter(item => item.length > 0);
+  }
+
+  // =============================================================================
   // E2E ENCRYPTION INITIALIZATION
   // =============================================================================
 
@@ -1267,10 +1307,18 @@ export class AiDDMCPServer {
     try {
       await this.ensureE2EInitialized();
 
-      const note = await this.backendClient.createNote(args);
+      // FIX v3.3.5: Sanitize text fields to decode HTML entities from LLM output
+      const sanitizedArgs = {
+        ...args,
+        title: this.sanitizeText(args.title),
+        content: this.sanitizeText(args.content),
+        tags: this.sanitizeTextArray(args.tags),
+      };
 
-      // Use original args for display since we know the plaintext
-      const response = `✅ **Note Created**\n\n**Title:** ${args.title}\n**ID:** ${note.id}\n**Category:** ${args.category || 'personal'}\n${args.tags && args.tags.length > 0 ? `**Tags:** ${args.tags.join(', ')}` : ''}\n\nThe note has been saved to your AiDD account.`;
+      const note = await this.backendClient.createNote(sanitizedArgs);
+
+      // Use sanitized values for display
+      const response = `✅ **Note Created**\n\n**Title:** ${sanitizedArgs.title}\n**ID:** ${note.id}\n**Category:** ${args.category || 'personal'}\n${sanitizedArgs.tags && sanitizedArgs.tags.length > 0 ? `**Tags:** ${sanitizedArgs.tags.join(', ')}` : ''}\n\nThe note has been saved to your AiDD account.`;
       return { content: [{ type: 'text', text: response } as TextContent] };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Error creating note: ${error instanceof Error ? error.message : 'Unknown error'}` } as TextContent] };
@@ -1291,13 +1339,15 @@ export class AiDDMCPServer {
       const notesToCreate: any[] = [];
 
       notes.forEach((note: any, index: number) => {
-        const title = typeof note?.title === 'string' ? note.title.trim() : '';
-        const content = typeof note?.content === 'string' ? note.content : '';
+        // FIX v3.3.5: Sanitize text fields to decode HTML entities from LLM output
+        const title = this.sanitizeText(note?.title);
+        const content = this.sanitizeText(note?.content);
         if (!title || !content) {
           errors.push({ index, title: title || undefined, error: 'Missing title or content' });
           return;
         }
 
+        const sanitizedTags = this.sanitizeTextArray(note.tags);
         const normalizedCategory = note.category === 'work' ? 'work' : 'personal';
         const sourceIdInput = typeof note.sourceId === 'string' ? note.sourceId.trim() : '';
         const importKey = this.buildNoteImportKey({ title, content, category: normalizedCategory });
@@ -1313,7 +1363,7 @@ export class AiDDMCPServer {
         notesToCreate.push({
           title,
           content,
-          tags: Array.isArray(note.tags) ? note.tags : [],
+          tags: sanitizedTags,
           category: normalizedCategory,
           sourceId,
         });
@@ -1515,14 +1565,18 @@ export class AiDDMCPServer {
       await this.ensureE2EInitialized();
 
       const { title, description, priority = 'medium', dueDate, tags = [], category = 'work' } = args;
+      // FIX v3.3.5: Sanitize text fields to decode HTML entities from LLM output
+      const sanitizedTitle = this.sanitizeText(title);
+      const sanitizedDescription = this.sanitizeText(description);
+      const sanitizedTags = this.sanitizeTextArray(tags);
       const normalizedPriority = this.normalizeActionItemPriority(priority);
       const normalizedCategory: 'work' | 'personal' = category === 'personal' ? 'personal' : 'work';
       const actionItemData = {
-        title,
-        description: description || '',
+        title: sanitizedTitle,
+        description: sanitizedDescription,
         priority: normalizedPriority,
         dueDate,
-        tags,
+        tags: sanitizedTags,
         category: normalizedCategory,
         confidence: 1.0,
       };
@@ -1530,7 +1584,7 @@ export class AiDDMCPServer {
       const createdItem = await this.backendClient.createActionItem(actionItemData);
 
       // Use original args for display since we know the plaintext
-      const response = `✅ **Action Item Created**\n\n**Title:** ${title}\n**ID:** ${createdItem.id}\n**Priority:** ${normalizedPriority}\n**Category:** ${normalizedCategory}\n${dueDate ? `**Due Date:** ${dueDate}` : ''}\n${tags && tags.length > 0 ? `**Tags:** ${tags.join(', ')}` : ''}\n\nThe action item has been saved to your AiDD account.`;
+      const response = `✅ **Action Item Created**\n\n**Title:** ${sanitizedTitle}\n**ID:** ${createdItem.id}\n**Priority:** ${normalizedPriority}\n**Category:** ${normalizedCategory}\n${dueDate ? `**Due Date:** ${dueDate}` : ''}\n${sanitizedTags && sanitizedTags.length > 0 ? `**Tags:** ${sanitizedTags.join(', ')}` : ''}\n\nThe action item has been saved to your AiDD account.`;
       return {
         content: [{ type: 'text', text: response } as TextContent],
         // Include structured content for widget consumption
@@ -1558,13 +1612,15 @@ export class AiDDMCPServer {
       const actionItemsToCreate: any[] = [];
 
       items.forEach((item: any, index: number) => {
-        const title = typeof item?.title === 'string' ? item.title.trim() : '';
+        // FIX v3.3.5: Sanitize text fields to decode HTML entities from LLM output
+        const title = this.sanitizeText(item?.title);
         if (!title) {
           errors.push({ index, error: 'Missing title' });
           return;
         }
 
-        const description = typeof item.description === 'string' ? item.description : '';
+        const description = this.sanitizeText(item.description);
+        const sanitizedTags = this.sanitizeTextArray(item.tags);
         const normalizedPriority = this.normalizeActionItemPriority(item.priority);
         const normalizedCategory = item.category === 'personal' ? 'personal' : 'work';
         const sourceNoteIdInput = typeof item.sourceNoteId === 'string' ? item.sourceNoteId.trim() : '';
@@ -1588,7 +1644,7 @@ export class AiDDMCPServer {
           description,
           priority: normalizedPriority,
           dueDate: item.dueDate,
-          tags: Array.isArray(item.tags) ? item.tags : [],
+          tags: sanitizedTags,
           category: normalizedCategory,
           confidence: 1.0,
           sourceNoteId,
@@ -2706,12 +2762,16 @@ export class AiDDMCPServer {
       await this.ensureE2EInitialized();
 
       const { title, description, estimatedTime = 15, energyRequired = 'medium', taskType, dueDate, tags = [] } = args;
+      // FIX v3.3.5: Sanitize text fields to decode HTML entities from LLM output
+      const sanitizedTitle = this.sanitizeText(title);
+      const sanitizedDescription = this.sanitizeText(description);
+      const sanitizedTags = this.sanitizeTextArray(tags);
 
       // FIX v3.2.18: Generate sourceId for deduplication
       // This prevents duplicate tasks when the same task is created multiple times via MCP
       const importKey = this.buildTaskImportKey({
-        title,
-        description,
+        title: sanitizedTitle,
+        description: sanitizedDescription,
         estimatedTime,
         energyRequired,
         taskType,
@@ -2723,15 +2783,15 @@ export class AiDDMCPServer {
       // FIX v3.2.21: Don't set actionItemId for direct task creation - leave it undefined
       // Setting actionItemId: '' caused sync issues: empty string is falsy in JS (skipped by deduplication)
       // but truthy in Swift (all tasks shared same key), causing duplicates and "Unknown Action Item" grouping
-      const taskData: Record<string, any> = { title, description: description || '', estimatedTime, energyRequired, tags, dependsOnTaskOrders: [], dueDate, sourceId };
+      const taskData: Record<string, any> = { title: sanitizedTitle, description: sanitizedDescription, estimatedTime, energyRequired, tags: sanitizedTags, dependsOnTaskOrders: [], dueDate, sourceId };
       if (taskType) {
         taskData.taskType = taskType;
       }
 
       const createdTask = await this.backendClient.createTask(taskData as any);
 
-      // Use original args for display since we know the plaintext
-      const response = `✅ **Task Created**\n\n**Title:** ${title}\n**ID:** ${createdTask.id}\n**Estimated Time:** ${estimatedTime} minutes\n**Energy Required:** ${energyRequired}\n${taskType ? `**Task Type:** ${taskType}\n` : ''}${dueDate ? `**Due Date:** ${dueDate}` : ''}\n${tags && tags.length > 0 ? `**Tags:** ${tags.join(', ')}` : ''}\n\nThe task has been saved to your AiDD account.`;
+      // Use sanitized values for display
+      const response = `✅ **Task Created**\n\n**Title:** ${sanitizedTitle}\n**ID:** ${createdTask.id}\n**Estimated Time:** ${estimatedTime} minutes\n**Energy Required:** ${energyRequired}\n${taskType ? `**Task Type:** ${taskType}\n` : ''}${dueDate ? `**Due Date:** ${dueDate}` : ''}\n${sanitizedTags && sanitizedTags.length > 0 ? `**Tags:** ${sanitizedTags.join(', ')}` : ''}\n\nThe task has been saved to your AiDD account.`;
       return {
         content: [{ type: 'text', text: response } as TextContent],
         // Include structured content for widget consumption
@@ -2761,7 +2821,8 @@ export class AiDDMCPServer {
       const tasksToCreate: any[] = [];
 
       tasks.forEach((task: any, index: number) => {
-        const title = typeof task?.title === 'string' ? task.title.trim() : '';
+        // FIX v3.3.5: Sanitize text fields to decode HTML entities from LLM output
+        const title = this.sanitizeText(task?.title);
         if (!title) {
           errors.push({ index, error: 'Missing title' });
           return;
@@ -2774,7 +2835,8 @@ export class AiDDMCPServer {
         const taskType = typeof task.taskType === 'string' && allowedTaskTypes.has(task.taskType)
           ? task.taskType
           : undefined;
-        const description = typeof task.description === 'string' ? task.description : '';
+        const description = this.sanitizeText(task.description);
+        const sanitizedTags = this.sanitizeTextArray(task.tags);
         const sourceIdInput = typeof task.sourceId === 'string' ? task.sourceId.trim() : '';
         const importKey = this.buildTaskImportKey({
           title,
@@ -2793,7 +2855,6 @@ export class AiDDMCPServer {
         }
         seenKeys.add(dedupeKey);
 
-        const tags = Array.isArray(task.tags) ? task.tags : [];
         // FIX v3.2.21: Don't set actionItemId for direct task creation - leave it undefined
         // Setting actionItemId: '' caused sync issues (see handleCreateTask comment)
         const taskData: Record<string, any> = {
@@ -2801,7 +2862,7 @@ export class AiDDMCPServer {
           description,
           estimatedTime,
           energyRequired,
-          tags,
+          tags: sanitizedTags,
           dependsOnTaskOrders: [],
           dueDate: task.dueDate,
           sourceId,

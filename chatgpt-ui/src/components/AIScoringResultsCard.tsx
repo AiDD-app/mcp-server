@@ -11,6 +11,7 @@ import React, { useEffect, useState } from 'react';
 import { useTasks, useAIJobs, useOpenAI } from '../hooks/useOpenAI';
 import type { Task, AIJob } from '../types/openai';
 import { cn } from '../utils/cn';
+import { decodeHTMLEntities } from '../utils/htmlEntities';
 import { getJobsFromToolOutput, getTasksFromToolOutput } from '../utils/toolOutput';
 import {
   Sparkles,
@@ -370,7 +371,7 @@ export function AIScoringResultsCard({
 
                       {/* Task Title */}
                       <div className="flex-1 text-left">
-                        <p className="font-medium text-white truncate">{task.title}</p>
+                        <p className="font-medium text-white truncate">{decodeHTMLEntities(task.title)}</p>
                       </div>
 
                       {/* Score Badge */}

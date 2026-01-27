@@ -12,6 +12,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { useTasks, useActionItems, useOpenAI } from '../hooks/useOpenAI';
 import type { Task, ActionItem } from '../types/openai';
 import { cn } from '../utils/cn';
+import { decodeHTMLEntities } from '../utils/htmlEntities';
 import { getTasksFromToolOutput, getActionItemsFromToolOutput } from '../utils/toolOutput';
 import {
   GitBranch,
@@ -309,7 +310,7 @@ export function DependencyGraph({
                     node.task.isCompleted && 'line-through opacity-60'
                   )}
                 >
-                  {node.task.title}
+                  {decodeHTMLEntities(node.task.title)}
                 </p>
 
                 {/* Meta Info Row */}
@@ -371,9 +372,9 @@ export function DependencyGraph({
           className="px-3 py-2 rounded-lg text-xs bg-gray-800 text-white border border-gray-700 max-w-xs z-50"
           sideOffset={5}
         >
-          <p className="font-medium mb-1">{node.task.title}</p>
+          <p className="font-medium mb-1">{decodeHTMLEntities(node.task.title)}</p>
           {node.task.description && (
-            <p className="text-gray-400 mb-2 line-clamp-2">{node.task.description}</p>
+            <p className="text-gray-400 mb-2 line-clamp-2">{decodeHTMLEntities(node.task.description)}</p>
           )}
           {hasDeps && (
             <p className="text-red-400">

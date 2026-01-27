@@ -11,6 +11,7 @@ import React, { useEffect, useState } from 'react';
 import { useTasks, useAIJobs, useOpenAI, useActionItems } from '../hooks/useOpenAI';
 import type { Task } from '../types/openai';
 import { cn } from '../utils/cn';
+import { decodeHTMLEntities } from '../utils/htmlEntities';
 import { getTasksFromToolOutput } from '../utils/toolOutput';
 import {
   Zap,
@@ -371,11 +372,14 @@ export function TaskPriorityDashboard({
                   <option value="">All Action Items</option>
                   {actionItems
                     .filter((item) => !item.isCompleted)
-                    .map((item) => (
-                      <option key={item.id} value={item.id} title={item.title}>
-                        {item.title.length > 30 ? `${item.title.substring(0, 30)}...` : item.title}
-                      </option>
-                    ))}
+                    .map((item) => {
+                      const decodedTitle = decodeHTMLEntities(item.title);
+                      return (
+                        <option key={item.id} value={item.id} title={decodedTitle}>
+                          {decodedTitle.length > 30 ? `${decodedTitle.substring(0, 30)}...` : decodedTitle}
+                        </option>
+                      );
+                    })}
                 </select>
               </div>
 
@@ -495,7 +499,7 @@ export function TaskPriorityDashboard({
                               'line-clamp-2',
                               task.isCompleted && 'line-through opacity-60'
                             )}>
-                              {task.title}
+                              {decodeHTMLEntities(task.title)}
                             </h3>
                           </div>
 
